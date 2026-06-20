@@ -1,15 +1,15 @@
 package rs.ac.bg.etf.kdp.client;
 
 /**
- * Ulazna tačka korisničkog programa (klijenta) sa GUI-jem.
+ * Client (user program) entry point, with a GUI.
  *
- * Upotreba: {@code java rs.ac.bg.etf.kdp.client.ClientMain}
+ * Usage: {@code java rs.ac.bg.etf.kdp.client.ClientMain}
  */
 public class ClientMain {
 
     public static void main(String[] args) {
-        // TODO: pokreni ClientGUI (izbor fajlova, tip simulacije, krajnje vreme,
-        //       slanje posla, prekid veze, status, preuzimanje rezultata; TicketStore na disk).
-        System.out.println("Klijent — skelet");
+        // TODO: start the ClientGUI (file selection, simulation type, end time,
+        //       submit job, disconnect, status, fetch result; TicketStore on disk).
+        System.out.println("Client — skeleton");
     }
 }

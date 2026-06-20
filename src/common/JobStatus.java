@@ -1,19 +1,19 @@
 package rs.ac.bg.etf.kdp.common;
 
 /**
- * Statusi posla na centralnom serveru (vidi postavku, sekcija 7 CLAUDE.md).
+ * Job statuses tracked by the central server (see assignment, section 7).
  */
 public enum JobStatus {
-    /** Pristigao na server, nije nikome prosleđen. */
+    /** Arrived at the server, not yet forwarded to anyone. */
     Ready,
-    /** Trenutno se prosleđuje radnoj stanici. */
+    /** Currently being forwarded to a worker. */
     Scheduled,
-    /** Izvršavanje je u toku. */
+    /** Execution in progress. */
     Running,
-    /** Uspešno se izvršio. */
+    /** Finished successfully. */
     Done,
-    /** Nije mogao da se izvrši (izuzetak / neispravna konfiguracija). */
+    /** Could not be executed (exception / invalid configuration). */
     Failed,
-    /** Korisnik je odustao od izvršavanja. */
+    /** The user gave up on the execution. */
     Aborted
 }

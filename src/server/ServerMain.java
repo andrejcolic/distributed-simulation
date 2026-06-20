@@ -3,9 +3,9 @@ package rs.ac.bg.etf.kdp.server;
 import rs.ac.bg.etf.kdp.common.Protocol;
 
 /**
- * Ulazna tačka centralnog servera.
+ * Central server entry point.
  *
- * Upotreba: {@code java rs.ac.bg.etf.kdp.server.ServerMain [serverPort]}
+ * Usage: {@code java rs.ac.bg.etf.kdp.server.ServerMain [serverPort]}
  */
 public class ServerMain {
 
@@ -14,8 +14,8 @@ public class ServerMain {
         if (args.length >= 1) {
             port = Integer.parseInt(args[0]);
         }
-        // TODO: pokreni CentralniServer (prihvat veza, JobManager, WorkerRegistry,
+        // TODO: start the central server (accept connections, JobManager, WorkerRegistry,
         //       HeartbeatMonitor, ServerLog, ServerGUI).
-        System.out.println("CentralniServer — skelet, port " + port);
+        System.out.println("CentralServer — skeleton, port " + port);
     }
 }
