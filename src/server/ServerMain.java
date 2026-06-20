@@ -1,5 +1,7 @@
 package rs.ac.bg.etf.kdp.server;
 
+import java.io.IOException;
+
 import rs.ac.bg.etf.kdp.common.Protocol;
 
 /**
@@ -14,8 +16,12 @@ public class ServerMain {
         if (args.length >= 1) {
             port = Integer.parseInt(args[0]);
         }
-        // TODO: start the central server (accept connections, JobManager, WorkerRegistry,
-        //       HeartbeatMonitor, ServerLog, ServerGUI).
-        System.out.println("CentralServer — skeleton, port " + port);
+        CentralServer server = new CentralServer(port);
+        Runtime.getRuntime().addShutdownHook(new Thread(server::stop));
+        try {
+            server.start();
+        } catch (IOException e) {
+            System.err.println("Server could not start on port " + port + ": " + e.getMessage());
+        }
     }
 }
