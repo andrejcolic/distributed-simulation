@@ -1,21 +1,23 @@
-package rs.ac.bg.etf.kdp.server;
+package server;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.Socket;
 
-import rs.ac.bg.etf.kdp.common.Connection;
-import rs.ac.bg.etf.kdp.common.ConfigException;
-import rs.ac.bg.etf.kdp.common.ConfigValidator;
-import rs.ac.bg.etf.kdp.common.JobStatus;
-import rs.ac.bg.etf.kdp.common.StreamUtil;
-import rs.ac.bg.etf.kdp.common.msg.ClientMessages;
-import rs.ac.bg.etf.kdp.common.msg.Message;
-import rs.ac.bg.etf.kdp.common.msg.WorkerMessages;
+import common.Connection;
+import common.ConfigException;
+import common.ConfigValidator;
+import common.JobStatus;
+import common.StreamUtil;
+import common.msg.ClientMessages;
+import common.msg.Message;
+import common.msg.WorkerMessages;
 
 /**
  * Handles one accepted connection on its own thread. The first message decides the role:
- * a {@link WorkerMessages.RegisterRequest} means a worker, anything else is treated as a client.
+ * a {@link WorkerMessages.RegisterRequest} is a worker's control connection, a
+ * {@link WorkerMessages.FetchFiles} is a worker downloading its input split, and anything else is
+ * a client request.
  *
  * <p>Robustness (Test 4): a non-protocol / garbage connection fails the handshake or message
  * decode; this handler logs it, closes that one connection, and the server keeps running.
@@ -47,11 +49,13 @@ public final class ConnectionHandler implements Runnable {
             Message first = conn.receive();
             if (first instanceof WorkerMessages.RegisterRequest) {
                 handleWorker(conn, (WorkerMessages.RegisterRequest) first);
+            } else if (first instanceof WorkerMessages.FetchFiles) {
+                handleFetch(conn, (WorkerMessages.FetchFiles) first);
             } else {
                 handleClient(conn, first);
             }
         } catch (java.io.EOFException e) {
-            // Peer closed the connection cleanly (e.g. client finished one request) — normal.
+            // Peer closed the connection cleanly — normal.
         } catch (IOException | ClassNotFoundException e) {
             server.getLog().log("Connection from " + socket.getRemoteSocketAddress()
                 + " ended: " + e.getMessage());
@@ -60,7 +64,7 @@ public final class ConnectionHandler implements Runnable {
         }
     }
 
-    /* ----- worker side ----- */
+    /* ----- worker control connection ----- */
 
     private void handleWorker(Connection conn, WorkerMessages.RegisterRequest reg)
             throws IOException, ClassNotFoundException {
@@ -75,6 +79,7 @@ public final class ConnectionHandler implements Runnable {
         try {
             while (true) {
                 Message msg = conn.receive();
+                server.touch(handle); // any message proves the worker is alive
                 if (msg instanceof WorkerMessages.SyncReport) {
                     server.onSyncReport((WorkerMessages.SyncReport) msg);
                 } else if (msg instanceof WorkerMessages.SubJobDone) {
@@ -84,15 +89,34 @@ public final class ConnectionHandler implements Runnable {
                     WorkerMessages.SubJobFailed f = (WorkerMessages.SubJobFailed) msg;
                     server.onSubJobFailed(f.jobId, f.workerIndex, f.reason);
                 } else if (msg instanceof WorkerMessages.Pong) {
-                    // heartbeat reply — liveness handled in a later celina
+                    // liveness already recorded by touch() above
                 }
             }
         } finally {
-            server.onWorkerDisconnected(handle);
+            server.markDead(handle, "connection closed");
         }
     }
 
-    /* ----- client side ----- */
+    /* ----- worker file download (dedicated connection) ----- */
+
+    private void handleFetch(Connection conn, WorkerMessages.FetchFiles req) throws IOException {
+        File sub = server.getJobs().subFile(req.jobId, req.workerIndex);
+        File connections = server.getJobs().connectionsFile(req.jobId);
+        // The job may have been torn down (Done/Failed/Aborted) and its inputs cleaned up while this
+        // worker was still asking for them. Tell the worker explicitly rather than letting sendFile
+        // throw and reset the socket — the worker reads this and abandons silently.
+        if (!sub.exists() || !connections.exists()) {
+            server.getLog().log("Fetch for job " + req.jobId + " w" + req.workerIndex
+                + " declined: input files no longer available (job torn down).");
+            conn.send(new WorkerMessages.FetchResponse(false, "inputs unavailable"));
+            return;
+        }
+        conn.send(new WorkerMessages.FetchResponse(true, null));
+        StreamUtil.sendFile(conn, sub);
+        StreamUtil.sendFile(conn, connections);
+    }
+
+    /* ----- client connection ----- */
 
     private void handleClient(Connection conn, Message first)
             throws IOException, ClassNotFoundException {
@@ -117,14 +141,20 @@ public final class ConnectionHandler implements Runnable {
     private void handleSubmit(Connection conn, ClientMessages.SubmitJobRequest req)
             throws IOException {
         ServerJob job = server.getJobs().create(req.spec);
+        // Stream the two input files straight to disk (Test 7 — never held whole in memory).
+        StreamUtil.receiveFile(conn, server.getJobs().componentsFile(job.id));
+        StreamUtil.receiveFile(conn, server.getJobs().connectionsFile(job.id));
         try {
-            ConfigValidator.validate(req.spec);
+            ConfigValidator.validate(req.spec, server.getJobs().componentsFile(job.id),
+                server.getJobs().connectionsFile(job.id));
+            server.getJobs().markSchedulable(job);
             server.getJobs().setStatus(job, JobStatus.Ready, null, null);
             conn.send(new ClientMessages.SubmitJobResponse(job.id));
             server.schedule();
         } catch (ConfigException e) {
             // Invalid configuration (Test 6): the job exists but is Failed with a clear reason.
             server.getJobs().setStatus(job, JobStatus.Failed, e.getMessage(), null);
+            server.getJobs().cleanupInputs(job.id);
             conn.send(new ClientMessages.SubmitJobResponse(job.id));
         }
     }
@@ -146,8 +176,8 @@ public final class ConnectionHandler implements Runnable {
         }
         File result = server.getJobs().resultFile(jobId);
         boolean available = job.status == JobStatus.Done && result.exists();
-        long size = available ? result.length() : 0;
-        conn.send(new ClientMessages.ResultResponse(job.toInfo(), available, size));
+        // The result size travels in JobInfo (info.getResultSize()), so it is not repeated here.
+        conn.send(new ClientMessages.ResultResponse(job.toInfo(), available));
         if (available) {
             StreamUtil.sendFile(conn, result);
         }
@@ -164,7 +194,7 @@ public final class ConnectionHandler implements Runnable {
                 "Job already finished: " + job.status));
             return;
         }
-        server.getJobs().setStatus(job, JobStatus.Aborted, "aborted by user", null);
+        server.abortJob(job);
         conn.send(new ClientMessages.AbortResponse(true, "aborted"));
     }
 

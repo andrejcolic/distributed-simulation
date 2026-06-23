@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.sleep.simulation;
+package sleep.simulation;
 
 public class SimulatorMultithread<T> extends Simulator<T> {
 

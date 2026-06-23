@@ -1,5 +1,6 @@
-package rs.ac.bg.etf.kdp.worker;
+package worker;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -9,11 +10,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
-import rs.ac.bg.etf.kdp.common.Connection;
-import rs.ac.bg.etf.kdp.common.msg.Message;
-import rs.ac.bg.etf.kdp.common.msg.PeerMessages;
-import rs.ac.bg.etf.kdp.common.msg.WorkerMessages;
+import common.Connection;
+import common.DistributedSubJobSpec;
+import common.StreamUtil;
+import common.msg.Message;
+import common.msg.PeerMessages;
+import common.msg.WorkerMessages;
 
 /**
  * Worker runtime: connects to the central server, registers its parallel capacity and peer port,
@@ -36,6 +40,9 @@ public final class Worker {
     private volatile Connection connection;
     private volatile ServerSocket peerServer;
     private volatile boolean running = true;
+    private volatile boolean connected = false;
+    /** Optional GUI hook: receives every status line (also printed to the console). */
+    private volatile Consumer<String> statusListener;
 
     public Worker(String host, int port, int capacity) {
         this.host = host;
@@ -56,6 +63,31 @@ public final class Worker {
         return name;
     }
 
+    public boolean isConnected() {
+        return connected;
+    }
+
+    public boolean isRunning() {
+        return running;
+    }
+
+    public void setStatusListener(Consumer<String> listener) {
+        this.statusListener = listener;
+    }
+
+    /** Prints a status line to the console and forwards it to the GUI listener if present. */
+    private void status(String msg) {
+        System.out.println(msg);
+        Consumer<String> l = statusListener;
+        if (l != null) {
+            try {
+                l.accept(msg);
+            } catch (RuntimeException ignored) {
+                // a GUI listener must not bring down the worker
+            }
+        }
+    }
+
     /** Connects, registers and runs the receive loop. Returns when the connection drops. */
     public void run() throws IOException {
         peerServer = new ServerSocket(0);
@@ -63,12 +95,14 @@ public final class Worker {
         startPeerListener();
 
         connection = Connection.connect(host, port);
-        System.out.println("Worker '" + name + "' connected to " + host + ":" + port
+        connected = true;
+        status("Worker '" + name + "' connected to " + host + ":" + port
             + " (capacity " + capacity + ", peer port " + peerPort + ")");
         try {
             connection.send(new WorkerMessages.RegisterRequest(name, capacity, peerPort));
             receiveLoop();
         } finally {
+            connected = false;
             connection.close();
             closePeerServer();
         }
@@ -91,7 +125,7 @@ public final class Worker {
             try {
                 msg = connection.receive();
             } catch (IOException | ClassNotFoundException e) {
-                System.out.println("Worker '" + name + "' lost connection: " + e.getMessage());
+                status("Worker '" + name + "' lost connection: " + e.getMessage());
                 return;
             }
             if (msg instanceof WorkerMessages.AssignSubJob) {
@@ -102,25 +136,116 @@ public final class Worker {
                 if (job != null) {
                     job.onBarrier(b);
                 }
+            } else if (msg instanceof WorkerMessages.CancelSubJob) {
+                WorkerMessages.CancelSubJob c = (WorkerMessages.CancelSubJob) msg;
+                DistributedJob job = getJob(c.jobId);
+                if (job != null) {
+                    status("Worker '" + name + "' cancelling job " + c.jobId
+                        + " (restart on remaining workers)");
+                    job.cancel();
+                }
             } else if (msg instanceof WorkerMessages.Ping) {
                 sendQuietly(new WorkerMessages.Pong());
             } else if (msg instanceof WorkerMessages.RegisterResponse) {
-                System.out.println("Worker '" + name + "' registered: "
+                status("Worker '" + name + "' registered: "
                     + ((WorkerMessages.RegisterResponse) msg).message);
             }
         }
     }
 
     private void handleAssign(WorkerMessages.AssignSubJob assign) {
-        final String jobId = assign.subJob.getJobId();
+        // Download the input split and start the job off the receive loop, so control messages
+        // (barriers, pings) keep flowing during the (possibly large) transfer.
+        new Thread(() -> startJob(assign.subJob),
+            "assign-" + assign.subJob.getJobId()).start();
+    }
+
+    private void startJob(DistributedSubJobSpec sub) {
+        final String jobId = sub.getJobId();
         activeJobs.incrementAndGet();
-        DistributedJob job = new DistributedJob(assign.subJob, connection,
-            () -> { jobs.remove(jobId); activeJobs.decrementAndGet(); });
+        File dir = new File("work", jobId + "_w" + sub.getWorkerIndex());
+        dir.mkdirs();
+        File comp = new File(dir, "components.txt");
+        File conn = new File(dir, "connections.txt");
+
+        FetchOutcome outcome = fetchInputs(sub, comp, conn);
+        if (outcome != FetchOutcome.OK) {
+            activeJobs.decrementAndGet();
+            if (outcome == FetchOutcome.ABANDONED) {
+                // The server says the inputs are gone — the job was already torn down. Reporting a
+                // failure would only trigger more cleanup, so stay silent (mirrors a cancel).
+                status("Worker '" + name + "' abandoning job " + jobId
+                    + " (inputs no longer available — job torn down).");
+            } else {
+                status("Worker '" + name + "' could not fetch inputs for job " + jobId
+                    + " after retries.");
+                sendQuietly(new WorkerMessages.SubJobFailed(jobId, sub.getWorkerIndex(),
+                    "input fetch failed after retries"));
+            }
+            return;
+        }
+
+        final DistributedJob[] holder = new DistributedJob[1];
+        DistributedJob job = new DistributedJob(sub, connection,
+            () -> completeJob(jobId, holder[0]), comp, conn);
+        holder[0] = job;
         registerJob(jobId, job);
-        System.out.println("Worker '" + name + "' starting job " + jobId
-            + " as worker " + assign.subJob.getWorkerIndex()
-            + "/" + assign.subJob.getWorkerCount());
+        status("Worker '" + name + "' starting job " + jobId
+            + " as worker " + sub.getWorkerIndex() + "/" + sub.getWorkerCount());
         job.start();
+    }
+
+    /**
+     * Fetches this worker's input split over a dedicated connection, retrying transient failures.
+     * A single dropped/reset socket should not fail the whole sub-job (which, with cleanup of the
+     * shared inputs, would cascade into a whole-job failure). Returns {@link FetchOutcome#ABANDONED}
+     * when the server reports the inputs are gone (job already torn down — no point retrying), or
+     * {@link FetchOutcome#FAILED} only after every attempt failed.
+     */
+    private FetchOutcome fetchInputs(DistributedSubJobSpec sub, File comp, File conn) {
+        final int attempts = 3;
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try (Connection fc = Connection.connect(host, port)) {
+                fc.send(new WorkerMessages.FetchFiles(sub.getJobId(), sub.getWorkerIndex()));
+                Message resp = fc.receive();
+                if (!(resp instanceof WorkerMessages.FetchResponse)) {
+                    throw new IOException("unexpected fetch response: "
+                        + (resp == null ? "null" : resp.getClass().getSimpleName()));
+                }
+                if (!((WorkerMessages.FetchResponse) resp).available) {
+                    return FetchOutcome.ABANDONED;
+                }
+                StreamUtil.receiveFile(fc, comp);
+                StreamUtil.receiveFile(fc, conn);
+                return FetchOutcome.OK;
+            } catch (IOException | ClassNotFoundException e) {
+                status("Worker '" + name + "' fetch attempt " + attempt + "/" + attempts
+                    + " for job " + sub.getJobId() + " failed: " + e.getMessage());
+                if (attempt < attempts) {
+                    try {
+                        Thread.sleep(250L * attempt);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return FetchOutcome.FAILED;
+                    }
+                }
+            }
+        }
+        return FetchOutcome.FAILED;
+    }
+
+    private enum FetchOutcome {
+        OK, ABANDONED, FAILED
+    }
+
+    private void completeJob(String jobId, DistributedJob job) {
+        synchronized (jobs) {
+            // Only remove if this exact instance is still current (a restart may have replaced it).
+            if (jobs.get(jobId) == job) {
+                jobs.remove(jobId);
+            }
+        }
+        activeJobs.decrementAndGet();
     }
 
     private void registerJob(String jobId, DistributedJob job) {
@@ -206,7 +331,7 @@ public final class Worker {
                 c.send(msg);
             }
         } catch (IOException e) {
-            System.out.println("Worker '" + name + "' could not send "
+            status("Worker '" + name + "' could not send "
                 + msg.getClass().getSimpleName() + ": " + e.getMessage());
         }
     }

@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.kdp.common;
+package common;
 
 /**
  * Job statuses tracked by the central server (see assignment, section 7).

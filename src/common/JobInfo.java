@@ -1,20 +1,15 @@
-package rs.ac.bg.etf.kdp.common;
+package common;
 
 import java.io.Serializable;
 
-/**
- * Lightweight snapshot of a job's state, returned to the client on {@code GET_STATUS}.
- * Carries no payload (no large component states / files).
- */
 public class JobInfo implements Serializable {
-    private static final long serialVersionUID = 1L;
 
     private final String jobId;
     private final JobStatus status;
     private final long submittedAt;
     private final long finishedAt;     // 0 if not finished
     private final long resultSize;     // bytes, 0 if no result
-    private final String message;      // e.g. the reason for Failed
+    private final String message;
 
     public JobInfo(String jobId, JobStatus status, long submittedAt, long finishedAt,
                    long resultSize, String message) {

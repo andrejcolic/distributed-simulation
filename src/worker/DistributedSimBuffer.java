@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.kdp.worker;
+package worker;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -9,10 +9,10 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
-import rs.ac.bg.etf.kdp.common.Connection;
-import rs.ac.bg.etf.kdp.common.msg.PeerMessages;
-import rs.ac.bg.etf.sleep.simulation.Event;
-import rs.ac.bg.etf.sleep.simulation.SimBuffer;
+import common.Connection;
+import common.msg.PeerMessages;
+import sleep.simulation.Event;
+import sleep.simulation.SimBuffer;
 
 /**
  * Distributed buffer ({@link SimBuffer}) that routes events across workers.

@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.kdp.common.msg;
+package common.msg;
 
 import java.util.List;
 
@@ -13,7 +13,6 @@ public final class PeerMessages {
 
     /** First message on a peer connection: which job and which worker is connecting. */
     public static final class PeerHello implements Message {
-        private static final long serialVersionUID = 1L;
         public final String jobId;
         public final int fromIndex;
 
@@ -25,10 +24,9 @@ public final class PeerMessages {
 
     /**
      * A batch of simulation events routed to this peer. Events are carried as {@code Object}
-     * (they are {@code rs.ac.bg.etf.sleep.simulation.Event}, which is {@code Serializable}).
+     * (they are {@code sleep.simulation.Event}, which is {@code Serializable}).
      */
     public static final class RouteEvents implements Message {
-        private static final long serialVersionUID = 1L;
         public final List<Object> events;
 
         public RouteEvents(List<Object> events) {

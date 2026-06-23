@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.kdp.common;
+package common;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -9,11 +9,10 @@ import java.net.InetSocketAddress;
 import java.net.ProtocolException;
 import java.net.Socket;
 
-import rs.ac.bg.etf.kdp.common.msg.Message;
+import common.msg.Message;
 
 /**
- * Socket wrapper with a versioned handshake (magic + version) and messages sent over
- * {@code ObjectStream}s.
+ * Socket wrapper with a magic handshake and messages sent over {@code ObjectStream}s.
  *
  * <p>The handshake is the key to robustness:
  * <ul>
@@ -24,7 +23,7 @@ import rs.ac.bg.etf.kdp.common.msg.Message;
  *       reports it cleanly.</li>
  * </ul>
  *
- * <p>Both sides first write magic+version and then read (symmetrically), then create the
+ * <p>Both sides first write the magic and then read it (symmetrically), then create the
  * {@code ObjectOutputStream} before the {@code ObjectInputStream} (avoids a deadlock on headers).
  */
 public final class Connection implements AutoCloseable {
@@ -67,20 +66,14 @@ public final class Connection implements AutoCloseable {
 
         DataOutputStream dout = new DataOutputStream(socket.getOutputStream());
         dout.writeInt(Protocol.MAGIC);
-        dout.writeInt(Protocol.VERSION);
         dout.flush();
 
         DataInputStream din = new DataInputStream(socket.getInputStream());
         int magic = din.readInt();
-        int version = din.readInt();
         if (magic != Protocol.MAGIC) {
             throw new ProtocolException("Wrong protocol (magic=0x"
                 + Integer.toHexString(magic) + "), expected 0x"
                 + Integer.toHexString(Protocol.MAGIC));
-        }
-        if (version != Protocol.VERSION) {
-            throw new ProtocolException("Unsupported protocol version: " + version
-                + " (expected " + Protocol.VERSION + ")");
         }
 
         // Handshake OK — clear the read timeout for long-running operations.

@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.kdp.common;
+package common;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -8,8 +8,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Arrays;
 
-import rs.ac.bg.etf.kdp.common.msg.FileChunk;
+import common.msg.FileChunk;
 
 /**
  * Helpers for streaming files in chunks (Test 7). The whole file is never loaded into
@@ -33,10 +34,10 @@ public final class StreamUtil {
             byte[] buf = new byte[CHUNK];
             int n;
             while ((n = rawIn.read(buf)) != -1) {
-                conn.send(new FileChunk(buf.clone(), n, false));
+                conn.send(new FileChunk(Arrays.copyOf(buf, n))); // exact-size chunk
                 total += n;
             }
-            conn.send(new FileChunk(new byte[0], 0, true)); // end-of-file marker
+            conn.send(new FileChunk(null)); // null data = end-of-file marker
         }
         return total;
     }
@@ -63,14 +64,12 @@ public final class StreamUtil {
                     throw new IOException("Expected FileChunk, got: "
                         + (msg == null ? "null" : msg.getClass().getName()));
                 }
-                FileChunk chunk = (FileChunk) msg;
-                if (chunk.length > 0) {
-                    out.write(chunk.data, 0, chunk.length);
-                    total += chunk.length;
+                byte[] data = ((FileChunk) msg).data;
+                if (data == null) {
+                    break; // null data marks end-of-file
                 }
-                if (chunk.last) {
-                    break;
-                }
+                out.write(data);
+                total += data.length;
             }
         }
         return total;

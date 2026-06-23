@@ -1,11 +1,11 @@
-package rs.ac.bg.etf.kdp.simulation.components;
+package kdp.simulation.components;
 
 import java.util.LinkedList;
 import java.util.List;
 
-import rs.ac.bg.etf.sleep.simulation.*;
+import sleep.simulation.*;
 
-public abstract class G implements rs.ac.bg.etf.sleep.simulation.SimComponent<Field> {
+public abstract class G implements sleep.simulation.SimComponent<Field> {
 	String name;
 	int id;
 	long lTime;

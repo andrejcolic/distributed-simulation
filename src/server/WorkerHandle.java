@@ -1,6 +1,6 @@
-package rs.ac.bg.etf.kdp.server;
+package server;
 
-import rs.ac.bg.etf.kdp.common.Connection;
+import common.Connection;
 
 /**
  * Server-side handle for one registered worker: its connection, peer listener address (so other
@@ -16,6 +16,11 @@ public class WorkerHandle {
     final int capacity;
     int active;
 
+    /** Last time anything was heard from this worker (heartbeat liveness). */
+    volatile long lastSeen;
+    /** Set once when the worker is declared lost, so loss is handled exactly once. */
+    volatile boolean dead;
+
     WorkerHandle(String id, String name, Connection connection,
                  String peerHost, int peerPort, int capacity) {
         this.id = id;
@@ -24,6 +29,11 @@ public class WorkerHandle {
         this.peerHost = peerHost;
         this.peerPort = peerPort;
         this.capacity = capacity;
+        this.lastSeen = System.currentTimeMillis();
+    }
+
+    void touch() {
+        lastSeen = System.currentTimeMillis();
     }
 
     boolean hasFreeSlot() {

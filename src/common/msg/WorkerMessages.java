@@ -1,6 +1,6 @@
-package rs.ac.bg.etf.kdp.common.msg;
+package common.msg;
 
-import rs.ac.bg.etf.kdp.common.DistributedSubJobSpec;
+import common.DistributedSubJobSpec;
 
 /**
  * Messages for the Server &harr; Worker channel. Grouped as nested static classes
@@ -18,7 +18,6 @@ public final class WorkerMessages {
      * listener (so the server can tell other workers how to reach this one).
      */
     public static final class RegisterRequest implements Message {
-        private static final long serialVersionUID = 1L;
         public final String name;
         public final int capacity;
         public final int peerPort;
@@ -32,7 +31,6 @@ public final class WorkerMessages {
 
     /** Worker reports it has reached the target time and returns its components' states. */
     public static final class SubJobDone implements Message {
-        private static final long serialVersionUID = 1L;
         public final String jobId;
         public final int workerIndex;
         public final String[][] states;
@@ -45,7 +43,6 @@ public final class WorkerMessages {
     }
 
     public static final class SubJobFailed implements Message {
-        private static final long serialVersionUID = 1L;
         public final String jobId;
         public final int workerIndex;
         public final String reason;
@@ -63,7 +60,6 @@ public final class WorkerMessages {
      * empty); {@code sent}/{@code received} are cumulative peer-event counts for in-flight detection.
      */
     public static final class SyncReport implements Message {
-        private static final long serialVersionUID = 1L;
         public final String jobId;
         public final int workerIndex;
         public final long localMin;
@@ -81,13 +77,11 @@ public final class WorkerMessages {
 
     /** Worker's reply to a {@link Ping}; proves it is still alive (heartbeat). */
     public static final class Pong implements Message {
-        private static final long serialVersionUID = 1L;
     }
 
     /* ----- Server -> Worker ----- */
 
     public static final class RegisterResponse implements Message {
-        private static final long serialVersionUID = 1L;
         public final boolean ok;
         public final String message;
 
@@ -98,7 +92,6 @@ public final class WorkerMessages {
     }
 
     public static final class AssignSubJob implements Message {
-        private static final long serialVersionUID = 1L;
         public final DistributedSubJobSpec subJob;
 
         public AssignSubJob(DistributedSubJobSpec subJob) {
@@ -112,7 +105,6 @@ public final class WorkerMessages {
      * {@code terminate=false} is a "recheck" (messages were still in flight).
      */
     public static final class SyncBarrier implements Message {
-        private static final long serialVersionUID = 1L;
         public final String jobId;
         public final long safeTime;
         public final boolean terminate;
@@ -126,6 +118,49 @@ public final class WorkerMessages {
 
     /** Heartbeat request the server sends every x seconds. */
     public static final class Ping implements Message {
-        private static final long serialVersionUID = 1L;
+    }
+
+    /**
+     * First message on a dedicated download connection: the worker asks the server to stream its
+     * input files (its component split, then all connections). Kept off the control connection so
+     * large transfers (Test 7) do not interleave with control messages.
+     */
+    public static final class FetchFiles implements Message {
+        public final String jobId;
+        public final int workerIndex;
+
+        public FetchFiles(String jobId, int workerIndex) {
+            this.jobId = jobId;
+            this.workerIndex = workerIndex;
+        }
+    }
+
+    /**
+     * Reply to {@link FetchFiles}, sent before any file bytes. {@code available=false} means the
+     * job's input files are gone (the job was torn down — finished, failed, or aborted — while the
+     * worker was fetching). The worker then abandons silently instead of receiving an abrupt socket
+     * reset and misreporting it as a failure. Closes the time-of-check/time-of-use race against
+     * {@code JobManager.cleanupInputs}.
+     */
+    public static final class FetchResponse implements Message {
+        public final boolean available;
+        public final String reason;
+
+        public FetchResponse(boolean available, String reason) {
+            this.available = available;
+            this.reason = reason;
+        }
+    }
+
+    /**
+     * Tells a worker to abandon its sub-job for {@code jobId}: the run is being restarted on the
+     * remaining workers because a peer worker failed. The worker tears down without reporting.
+     */
+    public static final class CancelSubJob implements Message {
+        public final String jobId;
+
+        public CancelSubJob(String jobId) {
+            this.jobId = jobId;
+        }
     }
 }

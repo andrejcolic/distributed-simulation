@@ -1,19 +1,19 @@
-package rs.ac.bg.etf.kdp.worker;
+package worker;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
-import rs.ac.bg.etf.kdp.common.Connection;
-import rs.ac.bg.etf.kdp.common.DistributedSubJobSpec;
-import rs.ac.bg.etf.kdp.common.PeerEndpoint;
-import rs.ac.bg.etf.kdp.common.msg.Message;
-import rs.ac.bg.etf.kdp.common.msg.PeerMessages;
-import rs.ac.bg.etf.kdp.common.msg.WorkerMessages;
-import rs.ac.bg.etf.sleep.simulation.Event;
-import rs.ac.bg.etf.sleep.simulation.Netlist;
-import rs.ac.bg.etf.sleep.simulation.Simulator;
-import rs.ac.bg.etf.sleep.simulation.SimulatorSinglethread;
+import common.Connection;
+import common.DistributedSubJobSpec;
+import common.PeerEndpoint;
+import common.msg.Message;
+import common.msg.PeerMessages;
+import common.msg.WorkerMessages;
+import sleep.simulation.Event;
+import sleep.simulation.Netlist;
+import sleep.simulation.Simulator;
+import sleep.simulation.SimulatorSinglethread;
 
 /**
  * One distributed sub-job running on this worker. Sets up peer connections, runs the simulation
@@ -22,7 +22,7 @@ import rs.ac.bg.etf.sleep.simulation.SimulatorSinglethread;
  *
  * <p>The simulation engine is {@code SimulatorSinglethread} regardless of the requested type:
  * the conservative barrier enforces global timestamp order, so processing the global-minimum
- * event each step yields the same result as a single-machine single-threaded run. (Optimistic /
+ * event each step yields t same result as a single-machine single-threaded run. (Optimistic /
  * Time Warp across machines is the documented alternative, not implemented here.)
  */
 @SuppressWarnings({"rawtypes", "unchecked"})
@@ -31,6 +31,8 @@ public final class DistributedJob {
     private final DistributedSubJobSpec spec;
     private final Connection serverConn;     // worker's link to the server (for reports/done)
     private final Runnable onComplete;
+    private final java.io.File componentsFile;
+    private final java.io.File connectionsFile;
     private final DistributedSimBuffer buffer;
 
     private final CountDownLatch peersReady;
@@ -38,11 +40,15 @@ public final class DistributedJob {
 
     private final Object barrierLock = new Object();
     private WorkerMessages.SyncBarrier pendingBarrier;
+    private volatile boolean cancelled;
 
-    public DistributedJob(DistributedSubJobSpec spec, Connection serverConn, Runnable onComplete) {
+    public DistributedJob(DistributedSubJobSpec spec, Connection serverConn, Runnable onComplete,
+                          java.io.File componentsFile, java.io.File connectionsFile) {
         this.spec = spec;
         this.serverConn = serverConn;
         this.onComplete = onComplete;
+        this.componentsFile = componentsFile;
+        this.connectionsFile = connectionsFile;
         this.buffer = new DistributedSimBuffer(spec.getRouting(), spec.getWorkerIndex());
         this.peerConns = new Connection[spec.getWorkerCount()];
         this.peersReady = new CountDownLatch(Math.max(0, spec.getWorkerCount() - 1));
@@ -69,10 +75,19 @@ public final class DistributedJob {
         }
     }
 
+    /**
+     * Abandon this sub-job (a peer worker failed; the server is restarting the run elsewhere).
+     * Terminates silently — no SubJobDone / SubJobFailed is sent.
+     */
+    public void cancel() {
+        cancelled = true;
+        buffer.setTerminated();
+        onBarrier(new WorkerMessages.SyncBarrier(spec.getJobId(), 0, true));
+    }
+
     private void run() {
         try {
-            Netlist netlist = NetlistBuilder.build(spec.getComponentLines(),
-                spec.getConnectionLines());
+            Netlist netlist = NetlistBuilder.build(componentsFile, connectionsFile);
             connectToHigherPeers();
             awaitPeers();
 
@@ -83,12 +98,18 @@ public final class DistributedJob {
 
             conservativeLoop(simulator);
 
+            if (cancelled) {
+                return; // restarted elsewhere — stay silent
+            }
             serverConn.send(new WorkerMessages.SubJobDone(spec.getJobId(),
                 spec.getWorkerIndex(), netlist.getState()));
         } catch (Exception e) {
-            sendFailed(e.getMessage());
+            if (!cancelled) {
+                sendFailed(e.getMessage());
+            }
         } finally {
             closePeers();
+            deleteLocalFiles(); // release the downloaded input split (Test 7)
             if (onComplete != null) {
                 onComplete.run();
             }
@@ -188,6 +209,15 @@ public final class DistributedJob {
             if (c != null) {
                 c.close();
             }
+        }
+    }
+
+    private void deleteLocalFiles() {
+        if (componentsFile != null) {
+            componentsFile.delete();
+        }
+        if (connectionsFile != null) {
+            connectionsFile.delete();
         }
     }
 

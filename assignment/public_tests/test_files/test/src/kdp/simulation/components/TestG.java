@@ -1,9 +1,9 @@
-package rs.ac.bg.etf.kdp.simulation.components;
+package kdp.simulation.components;
 
 import java.io.*;
 import java.util.*;
 
-import rs.ac.bg.etf.sleep.simulation.*;
+import sleep.simulation.*;
 
 public class TestG {
 

@@ -8,6 +8,7 @@ out/
 
 # Lokalno stanje (trajnost poslova / tiketi / logovi)
 jobs/
+work/
 tickets/
 logs/
 *.log

@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.kdp.server;
+package server;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-import rs.ac.bg.etf.kdp.common.Connection;
+import common.Connection;
 
 /**
  * Thread-safe registry of currently connected workers.

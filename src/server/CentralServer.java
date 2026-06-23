@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.kdp.server;
+package server;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -9,10 +9,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import rs.ac.bg.etf.kdp.common.DistributedSubJobSpec;
-import rs.ac.bg.etf.kdp.common.JobStatus;
-import rs.ac.bg.etf.kdp.common.Logger;
-import rs.ac.bg.etf.kdp.common.msg.WorkerMessages;
+import common.DistributedSubJobSpec;
+import common.JobStatus;
+import common.Logger;
+import common.msg.WorkerMessages;
 
 /**
  * Central server: accepts connections (one thread per connection), keeps the job and worker
@@ -32,6 +32,7 @@ public final class CentralServer {
 
     private volatile boolean running = true;
     private ServerSocket serverSocket;
+    private HeartbeatMonitor heartbeat;
 
     public CentralServer(int port) {
         this.port = port;
@@ -54,6 +55,10 @@ public final class CentralServer {
     public void start() throws IOException {
         serverSocket = new ServerSocket(port);
         log.log("Server listening on port " + port + ".");
+        heartbeat = new HeartbeatMonitor(this);
+        Thread hb = new Thread(heartbeat, "heartbeat");
+        hb.setDaemon(true);
+        hb.start();
         while (running) {
             try {
                 Socket socket = serverSocket.accept();
@@ -69,6 +74,9 @@ public final class CentralServer {
 
     public void stop() {
         running = false;
+        if (heartbeat != null) {
+            heartbeat.stop();
+        }
         try {
             if (serverSocket != null) {
                 serverSocket.close();
@@ -76,6 +84,11 @@ public final class CentralServer {
         } catch (IOException ignored) {
             // shutting down
         }
+    }
+
+    /** Records that a worker is alive (called whenever any message is received from it). */
+    void touch(WorkerHandle worker) {
+        worker.touch();
     }
 
     /* ----- scheduling ----- */
@@ -100,7 +113,14 @@ public final class CentralServer {
     }
 
     private boolean assign(ServerJob job, List<WorkerHandle> chosen) {
-        List<DistributedSubJobSpec> subs = Partitioner.partition(job, chosen);
+        List<DistributedSubJobSpec> subs;
+        try {
+            subs = Partitioner.partition(job, chosen, jobs);
+        } catch (IOException e) {
+            jobs.setStatus(job, JobStatus.Failed, "partition failed: " + e.getMessage(), null);
+            jobs.cleanupInputs(job.id);
+            return true; // terminal; continue scheduling other jobs
+        }
         JobCoordinator coordinator = new JobCoordinator(job.id, chosen,
             job.spec.getEndTime(), log);
 
@@ -166,22 +186,54 @@ public final class CentralServer {
         synchronized (coordinators) {
             coordinator = coordinators.remove(jobId);
         }
+        if (coordinator == null) {
+            // Already handled (e.g. a worker loss is restarting this job) — ignore stray failures.
+            return;
+        }
         ServerJob job = jobs.get(jobId);
         if (job != null) {
             jobs.setStatus(job, JobStatus.Failed, reason, null);
+            jobs.cleanupInputs(jobId);
         }
-        if (coordinator != null) {
-            releaseSlots(coordinator.workers());
-        }
+        // Cancel the other workers' sub-jobs so they stop waiting at the barrier.
+        cancelOthers(coordinator, null);
+        releaseSlots(coordinator.workers());
         schedule();
     }
 
-    void onWorkerDisconnected(WorkerHandle worker) {
+    /** Aborts a job at the user's request: cancels any running sub-jobs and releases resources. */
+    void abortJob(ServerJob job) {
+        JobCoordinator coordinator;
+        synchronized (coordinators) {
+            coordinator = coordinators.remove(job.id);
+        }
+        if (coordinator != null) {
+            cancelOthers(coordinator, null);
+            releaseSlots(coordinator.workers());
+        }
+        jobs.setStatus(job, JobStatus.Aborted, "aborted by user", null);
+        jobs.cleanupInputs(job.id);
+        schedule();
+    }
+
+    /**
+     * Declares a worker lost (heartbeat timeout or broken connection). Idempotent: the actual
+     * loss handling runs exactly once. Any job the worker was part of is restarted on the
+     * remaining workers (Test 3).
+     */
+    void markDead(WorkerHandle worker, String reason) {
         if (worker == null) {
             return;
         }
+        synchronized (worker) {
+            if (worker.dead) {
+                return;
+            }
+            worker.dead = true;
+        }
+        worker.connection.close(); // unblocks its ConnectionHandler receive loop
         workers.unregister(worker);
-        // Fail any job this worker was part of (heartbeat-driven restart comes in a later celina).
+
         List<JobCoordinator> affected = new ArrayList<>();
         synchronized (coordinators) {
             for (JobCoordinator c : new ArrayList<>(coordinators.values())) {
@@ -192,14 +244,34 @@ public final class CentralServer {
             }
         }
         for (JobCoordinator c : affected) {
-            ServerJob job = jobs.get(c.jobId());
-            if (job != null && job.status == JobStatus.Running) {
-                jobs.setStatus(job, JobStatus.Ready, "worker disconnected", null);
-            }
+            // Tell the surviving workers to abandon this run, then re-queue it for a fresh split.
+            cancelOthers(c, worker);
             releaseSlots(c.workers());
+            ServerJob job = jobs.get(c.jobId());
+            if (job != null && (job.status == JobStatus.Running
+                || job.status == JobStatus.Scheduled)) {
+                jobs.setStatus(job, JobStatus.Ready, "restart: worker " + worker.name + " lost",
+                    null);
+                log.log("Job " + c.jobId() + " will restart on remaining workers.");
+            }
         }
-        log.log("Worker " + worker.name + " disconnected (" + workers.size() + " left).");
+        log.log("Worker " + worker.name + " lost (" + reason + "), " + workers.size() + " left.");
         schedule();
+    }
+
+    /** Sends CancelSubJob to every worker of the coordinator except {@code skip}. */
+    private void cancelOthers(JobCoordinator coordinator, WorkerHandle skip) {
+        for (WorkerHandle w : coordinator.workers()) {
+            if (w == skip || w.dead) {
+                continue;
+            }
+            try {
+                w.connection.send(new WorkerMessages.CancelSubJob(coordinator.jobId()));
+            } catch (IOException e) {
+                log.log("Cancel of job " + coordinator.jobId() + " to " + w.name
+                    + " failed: " + e.getMessage());
+            }
+        }
     }
 
     private void finishJob(JobCoordinator coordinator) {
@@ -207,6 +279,7 @@ public final class CentralServer {
         if (job != null) {
             jobs.writeResult(job, coordinator.mergedStates());
             jobs.setStatus(job, JobStatus.Done, null, null);
+            jobs.cleanupInputs(job.id); // release large input files (Test 7)
         }
         synchronized (coordinators) {
             coordinators.remove(coordinator.jobId());

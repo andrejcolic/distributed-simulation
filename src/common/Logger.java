@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.kdp.common;
+package common;
 
 import java.io.IOException;
 import java.io.PrintWriter;

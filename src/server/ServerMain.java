@@ -1,23 +1,39 @@
-package rs.ac.bg.etf.kdp.server;
+package server;
 
+import java.awt.GraphicsEnvironment;
 import java.io.IOException;
 
-import rs.ac.bg.etf.kdp.common.Protocol;
+import common.Protocol;
 
 /**
- * Central server entry point.
+ * Central server entry point. Shows the AWT GUI by default; pass {@code --headless} (or run on a
+ * headless host) to start without a window.
  *
- * Usage: {@code java rs.ac.bg.etf.kdp.server.ServerMain [serverPort]}
+ * Usage: {@code java server.ServerMain [serverPort] [--headless]}
  */
 public class ServerMain {
 
     public static void main(String[] args) {
         int port = Protocol.DEFAULT_SERVER_PORT;
-        if (args.length >= 1) {
-            port = Integer.parseInt(args[0]);
+        boolean headless = GraphicsEnvironment.isHeadless();
+        for (String a : args) {
+            if ("--headless".equals(a)) {
+                headless = true;
+            } else {
+                try {
+                    port = Integer.parseInt(a);
+                } catch (NumberFormatException ignored) {
+                    // not the port argument
+                }
+            }
         }
+
         CentralServer server = new CentralServer(port);
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop));
+
+        if (!headless) {
+            new ServerGUI(server, port).showUi();
+        }
         try {
             server.start();
         } catch (IOException e) {

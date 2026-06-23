@@ -1,20 +1,15 @@
-package rs.ac.bg.etf.kdp.common.msg;
+package common.msg;
 
 /**
- * A file chunk for streaming result transfer (Test 7 — large files).
- * The whole file is never held in memory: it is sent / received chunk by chunk.
+ * One chunk of a large file, streamed so the whole file is never held in memory (Test 7).
+ * A chunk whose {@code data} is {@code null} marks the end of the file.
  */
 public final class FileChunk implements Message {
-    private static final long serialVersionUID = 1L;
 
-    /** Buffer; only the first {@link #length} bytes are valid. */
+    /** Chunk bytes, or {@code null} to signal end-of-file. */
     public final byte[] data;
-    public final int length;
-    public final boolean last;
 
-    public FileChunk(byte[] data, int length, boolean last) {
+    public FileChunk(byte[] data) {
         this.data = data;
-        this.length = length;
-        this.last = last;
     }
 }

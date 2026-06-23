@@ -1,9 +1,9 @@
-package rs.ac.bg.etf.kdp.simulation.components;
+package kdp.simulation.components;
 
 import java.util.LinkedList;
 import java.util.List;
 
-import rs.ac.bg.etf.sleep.simulation.*;
+import sleep.simulation.*;
 
 public class Collector extends G {
 	int cnt;

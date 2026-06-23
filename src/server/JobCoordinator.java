@@ -1,12 +1,12 @@
-package rs.ac.bg.etf.kdp.server;
+package server;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import rs.ac.bg.etf.kdp.common.Logger;
-import rs.ac.bg.etf.kdp.common.msg.WorkerMessages;
+import common.Logger;
+import common.msg.WorkerMessages;
 
 /**
  * Coordinates one running distributed job: the conservative time barrier and the collection of

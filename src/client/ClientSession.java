@@ -1,26 +1,26 @@
-package rs.ac.bg.etf.kdp.client;
+package client;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.util.List;
 
-import rs.ac.bg.etf.kdp.common.Connection;
-import rs.ac.bg.etf.kdp.common.JobInfo;
-import rs.ac.bg.etf.kdp.common.JobSpec;
-import rs.ac.bg.etf.kdp.common.JobType;
-import rs.ac.bg.etf.kdp.common.StreamUtil;
-import rs.ac.bg.etf.kdp.common.msg.ClientMessages;
-import rs.ac.bg.etf.kdp.common.msg.Message;
+import common.Connection;
+import common.JobInfo;
+import common.JobSpec;
+import common.JobType;
+import common.StreamUtil;
+import common.msg.ClientMessages;
+import common.msg.Message;
 
 /**
- * Reusable client API toward the central server. Each call opens its own short-lived
- * connection and closes it, so the client owns no long-lived link — it may disconnect and
- * reconnect at any time and still ask for results later by job id (Test 2).
+ * Reusable client API toward the central server. Each call opens its own short-lived connection
+ * and closes it, so the client owns no long-lived link — it may disconnect and reconnect at any
+ * time and still ask for results later by job id (Test 2).
  *
- * <p>If the host/port points at a non-protocol server (e.g. a web server, Test 5), the
- * handshake fails and the call throws {@link IOException} with a clear reason instead of hanging.
+ * <p>Large files are streamed in chunks (Test 7): submission streams the two input files and result
+ * retrieval streams the output file, so nothing is held whole in memory.
+ *
+ * <p>If the host/port points at a non-protocol server (e.g. a web server, Test 5), the handshake
+ * fails and the call throws {@link IOException} with a clear reason instead of hanging.
  */
 public final class ClientSession {
 
@@ -32,20 +32,17 @@ public final class ClientSession {
         this.port = port;
     }
 
-    /** Reads two files and builds a {@link JobSpec}. */
-    public static JobSpec buildSpec(String componentsPath, String connectionsPath,
-                                    JobType type, long endTime, String outputName)
-            throws IOException {
-        List<String> components = Files.readAllLines(
-            new File(componentsPath).toPath(), StandardCharsets.UTF_8);
-        List<String> connections = Files.readAllLines(
-            new File(connectionsPath).toPath(), StandardCharsets.UTF_8);
-        return new JobSpec(components, connections, type, endTime, outputName);
+    public static JobSpec spec(JobType type, long endTime, String outputName) {
+        return new JobSpec(type, endTime, outputName);
     }
 
-    public String submit(JobSpec spec) throws IOException {
+    /** Submits a job: sends the metadata, then streams the two input files. Returns the job id. */
+    public String submit(JobSpec spec, File componentsFile, File connectionsFile)
+            throws IOException {
         try (Connection conn = Connection.connect(host, port)) {
             conn.send(new ClientMessages.SubmitJobRequest(spec));
+            StreamUtil.sendFile(conn, componentsFile);
+            StreamUtil.sendFile(conn, connectionsFile);
             Message resp = receive(conn);
             if (resp instanceof ClientMessages.SubmitJobResponse) {
                 return ((ClientMessages.SubmitJobResponse) resp).jobId;
@@ -66,9 +63,8 @@ public final class ClientSession {
     }
 
     /**
-     * Fetches the result into {@code dest} if it is available. Returns the {@link JobInfo}
-     * header; {@code dest} is written only when {@link JobInfo#hasResult()} (i.e. the response
-     * advertised the file).
+     * Fetches the result into {@code dest} if it is available (streamed in chunks). Returns the
+     * {@link JobInfo} header; {@code dest} is written only when the result is advertised.
      */
     public JobInfo fetchResult(String jobId, File dest) throws IOException {
         try (Connection conn = Connection.connect(host, port)) {

@@ -1,24 +1,33 @@
-package rs.ac.bg.etf.kdp.server;
+package server;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
-import rs.ac.bg.etf.kdp.common.DistributedSubJobSpec;
-import rs.ac.bg.etf.kdp.common.JobSpec;
-import rs.ac.bg.etf.kdp.common.PeerEndpoint;
+import common.DistributedSubJobSpec;
+import common.JobSpec;
+import common.PeerEndpoint;
 
 /**
- * Splits a job into one sub-job per worker. Components are distributed round-robin (so each
- * worker gets roughly the same count); every worker receives all connections plus a routing table
- * ({@code componentId -> worker index}) and the peer endpoints.
+ * Splits a job into one sub-job per worker. The components file is read line by line and each line
+ * is written to one worker's split file round-robin (so each worker gets roughly the same count);
+ * the file is never held whole in memory (Test 7). Every worker receives all connections plus a
+ * routing table ({@code componentId -> worker index}) and the peer endpoints.
  */
 public final class Partitioner {
 
     private Partitioner() {
     }
 
-    public static List<DistributedSubJobSpec> partition(ServerJob job, List<WorkerHandle> workers) {
+    public static List<DistributedSubJobSpec> partition(ServerJob job, List<WorkerHandle> workers,
+                                                        JobManager jobs) throws IOException {
         JobSpec spec = job.spec;
         int k = workers.size();
 
@@ -27,29 +36,39 @@ public final class Partitioner {
             peers.add(new PeerEndpoint(w.peerHost, w.peerPort));
         }
 
-        // Per-worker component line buckets + routing table.
-        List<List<String>> buckets = new ArrayList<>(k);
-        for (int i = 0; i < k; i++) {
-            buckets.add(new ArrayList<>());
-        }
+        PrintWriter[] out = new PrintWriter[k];
         HashMap<Long, Integer> routing = new HashMap<>();
-        int next = 0;
-        for (String line : spec.getComponentLines()) {
-            if (line == null || line.trim().isEmpty()) {
-                continue;
+        try {
+            for (int i = 0; i < k; i++) {
+                out[i] = new PrintWriter(jobs.subFile(job.id, i), StandardCharsets.UTF_8.name());
             }
-            String[] t = line.trim().split("\\s+");
-            long id = Long.parseLong(t[0]);
-            int idx = next % k;
-            next++;
-            buckets.get(idx).add(line);
-            routing.put(id, idx);
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(
+                    new FileInputStream(jobs.componentsFile(job.id)), StandardCharsets.UTF_8))) {
+                String line;
+                int next = 0;
+                while ((line = in.readLine()) != null) {
+                    if (line.trim().isEmpty()) {
+                        continue;
+                    }
+                    String[] t = line.trim().split("\\s+", 2);
+                    long id = Long.parseLong(t[0]);
+                    int idx = next % k;
+                    next++;
+                    out[idx].println(line);
+                    routing.put(id, idx);
+                }
+            }
+        } finally {
+            for (PrintWriter w : out) {
+                if (w != null) {
+                    w.close();
+                }
+            }
         }
 
         List<DistributedSubJobSpec> subs = new ArrayList<>(k);
         for (int i = 0; i < k; i++) {
             subs.add(new DistributedSubJobSpec(job.id, i, k,
-                buckets.get(i), spec.getConnectionLines(),
                 routing, peers, spec.getType(), spec.getEndTime()));
         }
         return subs;

@@ -1,8 +1,8 @@
-package rs.ac.bg.etf.kdp.simulation.components;
+package kdp.simulation.components;
 
 import java.util.*;
 
-import rs.ac.bg.etf.sleep.simulation.*;
+import sleep.simulation.*;
 
 public class Worker extends G {
 	public Worker() {

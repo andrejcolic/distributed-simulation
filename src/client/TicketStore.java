@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.kdp.client;
+package client;
 
 import java.io.File;
 import java.io.IOException;

@@ -1,17 +1,18 @@
-package rs.ac.bg.etf.kdp.client;
+package client;
 
 import java.io.File;
 import java.io.IOException;
 
-import rs.ac.bg.etf.kdp.common.JobInfo;
-import rs.ac.bg.etf.kdp.common.JobSpec;
-import rs.ac.bg.etf.kdp.common.JobType;
+import common.JobInfo;
+import common.JobSpec;
+import common.JobType;
 
 /**
- * Console client (the Swing GUI is added later). Argument-driven so the seven test scenarios
- * can be scripted.
+ * Client entry point. With no arguments it launches the AWT GUI; with arguments it runs as a
+ * console client, which keeps the seven test scenarios scriptable.
  *
  * <pre>
+ * java ... ClientMain                                  # launches the GUI
  * java ... ClientMain &lt;host&gt; &lt;port&gt; submit &lt;components&gt; &lt;connections&gt; &lt;type&gt; &lt;endTime&gt; &lt;outputName&gt;
  * java ... ClientMain &lt;host&gt; &lt;port&gt; status &lt;jobId&gt;
  * java ... ClientMain &lt;host&gt; &lt;port&gt; result &lt;jobId&gt; [destFile]
@@ -22,6 +23,10 @@ import rs.ac.bg.etf.kdp.common.JobType;
 public class ClientMain {
 
     public static void main(String[] args) {
+        if (args.length == 0) {
+            new ClientGUI(new TicketStore("tickets/tickets.txt")).showUi();
+            return;
+        }
         if (args.length < 3) {
             usage();
             return;
@@ -72,8 +77,8 @@ public class ClientMain {
         long endTime = Long.parseLong(args[6]);
         String outputName = args[7];
 
-        JobSpec spec = ClientSession.buildSpec(components, connections, type, endTime, outputName);
-        String jobId = session.submit(spec);
+        JobSpec spec = ClientSession.spec(type, endTime, outputName);
+        String jobId = session.submit(spec, new File(components), new File(connections));
         tickets.add(jobId, outputName);
         System.out.println("Submitted job " + jobId + " (output '" + outputName + "').");
     }

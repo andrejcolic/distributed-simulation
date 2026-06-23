@@ -1,8 +1,8 @@
-package rs.ac.bg.etf.kdp.server;
+package server;
 
-import rs.ac.bg.etf.kdp.common.JobInfo;
-import rs.ac.bg.etf.kdp.common.JobSpec;
-import rs.ac.bg.etf.kdp.common.JobStatus;
+import common.JobInfo;
+import common.JobSpec;
+import common.JobStatus;
 
 /**
  * Server-side state of a single job. Mutable fields are guarded by the owning
@@ -18,6 +18,8 @@ public class ServerJob {
     String message;
     String assignedWorker;
     long resultSize;
+    /** False until the streamed input files have arrived and validated — keeps it off the queue. */
+    boolean schedulable;
 
     ServerJob(String id, JobSpec spec, long submittedAt) {
         this.id = id;

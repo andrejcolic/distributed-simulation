@@ -3,16 +3,16 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Arrays;
 
-import rs.ac.bg.etf.kdp.common.Connection;
-import rs.ac.bg.etf.kdp.common.ConfigException;
-import rs.ac.bg.etf.kdp.common.ConfigValidator;
-import rs.ac.bg.etf.kdp.common.JobSpec;
-import rs.ac.bg.etf.kdp.common.JobType;
-import rs.ac.bg.etf.kdp.common.StreamUtil;
-import rs.ac.bg.etf.kdp.common.msg.ClientMessages;
-import rs.ac.bg.etf.kdp.common.msg.Message;
+import client.ClientSession;
+import common.Connection;
+import common.ConfigException;
+import common.ConfigValidator;
+import common.JobSpec;
+import common.JobType;
+import common.StreamUtil;
+import common.msg.ClientMessages;
+import common.msg.Message;
 
 /**
  * Standalone smoke test for the common layer (handshake, messaging, file streaming,
@@ -104,28 +104,38 @@ public class SelfTest {
     }
 
     /** Valid config accepted; invalid config rejected with a clear message — Test 6. */
-    private static boolean testConfigValidation() {
+    private static boolean testConfigValidation() throws IOException {
+        JobSpec meta = ClientSession.spec(JobType.OPTIMISTIC, 100, "out.txt");
+
+        File goodC = writeTemp("1 a.b.C Bag 1 2\n");
+        File goodConn = writeTemp("srcID srcPort dstID dstPort\n1 0 1 0\n");
         boolean validOk = false;
         try {
-            ConfigValidator.validate(new JobSpec(
-                Arrays.asList("1 a.b.C Bag 1 2"),
-                Arrays.asList("srcID srcPort dstID dstPort", "1 0 1 0"),
-                JobType.OPTIMISTIC, 100, "out.txt"));
+            ConfigValidator.validate(meta, goodC, goodConn);
             validOk = true;
         } catch (ConfigException e) {
             System.out.println("    unexpected rejection: " + e.getMessage());
         }
+
+        File badC = writeTemp("X a.b.C Bag\n");
+        File badConn = writeTemp("header\n");
         boolean invalidRejected = false;
         try {
-            ConfigValidator.validate(new JobSpec(
-                Arrays.asList("X a.b.C Bag"),
-                Arrays.asList("header"),
-                JobType.OPTIMISTIC, 100, "out.txt"));
+            ConfigValidator.validate(meta, badC, badConn);
         } catch (ConfigException e) {
             invalidRejected = true;
         }
         boolean pass = validOk && invalidRejected;
         System.out.println("[3] config validation (Test 6): " + (pass ? "OK" : "FAIL"));
         return pass;
+    }
+
+    private static File writeTemp(String content) throws IOException {
+        File f = File.createTempFile("cfg", ".txt");
+        f.deleteOnExit();
+        try (FileOutputStream fo = new FileOutputStream(f)) {
+            fo.write(content.getBytes());
+        }
+        return f;
     }
 }

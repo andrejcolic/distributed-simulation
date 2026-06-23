@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.kdp.server;
+package server;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -9,24 +9,29 @@ import java.io.ObjectOutputStream;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicLong;
 
-import rs.ac.bg.etf.kdp.common.JobSpec;
-import rs.ac.bg.etf.kdp.common.JobStatus;
-import rs.ac.bg.etf.kdp.common.Logger;
+import common.JobSpec;
+import common.JobStatus;
+import common.Logger;
 
 /**
- * Thread-safe registry of jobs with persistence on disk, so job state survives a server
- * restart and a client disconnect (Test 2). Each job lives in {@code jobs/<id>/}:
+ * Thread-safe registry of jobs with persistence on disk, so job state survives a server restart
+ * and a client disconnect (Test 2). Each job lives in {@code jobs/<id>/}:
  * <ul>
- *   <li>{@code spec.ser} — the serialized {@link JobSpec} (lets the server reassign after restart),</li>
+ *   <li>{@code spec.ser} — serialized {@link JobSpec} metadata (type, end time, output name),</li>
+ *   <li>{@code components.txt} / {@code connections.txt} — the streamed input files (Test 7),</li>
+ *   <li>{@code sub_w&lt;i&gt;.txt} — per-worker component splits,</li>
  *   <li>{@code status.properties} — status, timestamps, message, result size,</li>
  *   <li>{@code result.txt} — the merged output (written when Done).</li>
  * </ul>
+ * Input files are streamed (never held whole in memory) and deleted when the job finishes.
  */
 public final class JobManager {
 
@@ -42,6 +47,7 @@ public final class JobManager {
         loadFromDisk();
     }
 
+    /** Allocates a new job (its directory) for the given metadata; input files arrive separately. */
     public synchronized ServerJob create(JobSpec spec) {
         String id = "j" + seq.incrementAndGet();
         ServerJob job = new ServerJob(id, spec, System.currentTimeMillis());
@@ -61,14 +67,18 @@ public final class JobManager {
         return new ArrayList<>(jobs.values());
     }
 
-    /** Next job in {@code Ready} state, or {@code null} if none. */
     public synchronized ServerJob nextReady() {
         for (ServerJob job : jobs.values()) {
-            if (job.status == JobStatus.Ready) {
+            if (job.status == JobStatus.Ready && job.schedulable) {
                 return job;
             }
         }
         return null;
+    }
+
+    /** Marks a job eligible for scheduling once its input files have arrived and validated. */
+    public synchronized void markSchedulable(ServerJob job) {
+        job.schedulable = true;
     }
 
     public synchronized void setStatus(ServerJob job, JobStatus status, String message,
@@ -92,11 +102,12 @@ public final class JobManager {
 
     /**
      * Writes the merged component states to {@code result.txt} (one component per line), sorted by
-     * component id so the output is deterministic regardless of how the job was split.
+     * component id so the output is deterministic regardless of how the job was split. The states
+     * are written line by line, never building one giant string.
      */
     public synchronized void writeResult(ServerJob job, String[][] states) {
         String[][] sorted = states.clone();
-        java.util.Arrays.sort(sorted, java.util.Comparator.comparingLong(JobManager::leadingId));
+        Arrays.sort(sorted, Comparator.comparingLong(JobManager::leadingId));
         File out = resultFile(job.id);
         try (PrintWriter pw = new PrintWriter(out, StandardCharsets.UTF_8.name())) {
             for (String[] state : sorted) {
@@ -112,15 +123,30 @@ public final class JobManager {
         job.resultSize = out.length();
     }
 
-    private static long leadingId(String[] state) {
-        if (state == null || state.length == 0) {
-            return Long.MAX_VALUE;
+    /** Releases large input files once a job is finished (Test 7 — resource release). */
+    public synchronized void cleanupInputs(String id) {
+        File dir = jobDir(id);
+        File[] files = dir.listFiles((d, n) ->
+            n.equals("components.txt") || n.equals("connections.txt") || n.startsWith("sub_w"));
+        if (files != null) {
+            for (File f : files) {
+                if (f.delete()) {
+                    // freed
+                }
+            }
         }
-        try {
-            return Long.parseLong(state[0]);
-        } catch (NumberFormatException e) {
-            return Long.MAX_VALUE;
-        }
+    }
+
+    public File componentsFile(String id) {
+        return new File(jobDir(id), "components.txt");
+    }
+
+    public File connectionsFile(String id) {
+        return new File(jobDir(id), "connections.txt");
+    }
+
+    public File subFile(String id, int workerIndex) {
+        return new File(jobDir(id), "sub_w" + workerIndex + ".txt");
     }
 
     public File resultFile(String id) {
@@ -207,16 +233,33 @@ public final class JobManager {
         ServerJob job = new ServerJob(id, spec, parseLong(p.getProperty("submittedAt")));
         JobStatus saved = JobStatus.valueOf(p.getProperty("status", "Ready"));
         // Jobs that were mid-flight when the server stopped are re-queued so they get
-        // reassigned to a worker (Test 2/3).
+        // reassigned to a worker (Test 2/3) — provided their input files still exist.
         if (saved == JobStatus.Scheduled || saved == JobStatus.Running) {
-            saved = JobStatus.Ready;
+            if (componentsFile(id).exists() && connectionsFile(id).exists()) {
+                saved = JobStatus.Ready;
+            } else {
+                saved = JobStatus.Failed;
+                p.setProperty("message", "inputs lost on restart");
+            }
         }
         job.status = saved;
+        job.schedulable = (saved == JobStatus.Ready); // restored Ready jobs have their files
         job.finishedAt = parseLong(p.getProperty("finishedAt"));
         job.message = p.getProperty("message", "");
         job.assignedWorker = emptyToNull(p.getProperty("assignedWorker", ""));
         job.resultSize = parseLong(p.getProperty("resultSize"));
         return job;
+    }
+
+    private static long leadingId(String[] state) {
+        if (state == null || state.length == 0) {
+            return Long.MAX_VALUE;
+        }
+        try {
+            return Long.parseLong(state[0]);
+        } catch (NumberFormatException e) {
+            return Long.MAX_VALUE;
+        }
     }
 
     private static long parseLong(String s) {

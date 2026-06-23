@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.kdp.common;
+package common;
 
 import java.io.Serializable;
 
@@ -7,7 +7,6 @@ import java.io.Serializable;
  * each other and exchange simulation events directly (peer-to-peer routing).
  */
 public class PeerEndpoint implements Serializable {
-    private static final long serialVersionUID = 1L;
 
     public final String host;
     public final int port;

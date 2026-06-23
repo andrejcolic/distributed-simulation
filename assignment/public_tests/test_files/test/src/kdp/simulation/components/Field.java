@@ -1,4 +1,4 @@
-package rs.ac.bg.etf.kdp.simulation.components;
+package kdp.simulation.components;
 
 import java.io.*;
 import java.util.*;
