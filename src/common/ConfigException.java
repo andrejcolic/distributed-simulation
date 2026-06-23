@@ -1,9 +1,6 @@
 package common;
 
-/**
- * Invalid job configuration (Test 6). Carries a clear message that becomes the
- * {@code Failed} status — the error is <b>not</b> silently swallowed.
- */
+// Invalid job configuration; its message becomes the job's Failed reason.
 public class ConfigException extends Exception {
 
     public ConfigException(String message) {

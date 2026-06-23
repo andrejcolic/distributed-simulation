@@ -13,15 +13,10 @@ import common.msg.ClientMessages;
 import common.msg.Message;
 import common.msg.WorkerMessages;
 
-/**
- * Handles one accepted connection on its own thread. The first message decides the role:
- * a {@link WorkerMessages.RegisterRequest} is a worker's control connection, a
- * {@link WorkerMessages.FetchFiles} is a worker downloading its input split, and anything else is
- * a client request.
- *
- * <p>Robustness (Test 4): a non-protocol / garbage connection fails the handshake or message
- * decode; this handler logs it, closes that one connection, and the server keeps running.
- */
+// Handles one accepted connection on its own thread. The first message decides the role:
+// RegisterRequest = a worker's control connection, FetchFiles = a worker downloading its input
+// split, anything else = a client request. A garbage/non-protocol connection is just logged and
+// closed, so the server keeps running.
 public final class ConnectionHandler implements Runnable {
 
     private final Socket socket;
@@ -38,7 +33,7 @@ public final class ConnectionHandler implements Runnable {
         try {
             conn = Connection.accept(socket);
         } catch (IOException e) {
-            // Wrong/garbage protocol — reject this connection only (Test 4).
+            // wrong/garbage protocol — reject just this connection
             server.getLog().log("Rejected connection from "
                 + socket.getRemoteSocketAddress() + ": " + e.getMessage());
             closeSocket();
@@ -64,7 +59,7 @@ public final class ConnectionHandler implements Runnable {
         }
     }
 
-    /* ----- worker control connection ----- */
+    /* worker control connection */
 
     private void handleWorker(Connection conn, WorkerMessages.RegisterRequest reg)
             throws IOException, ClassNotFoundException {
@@ -97,14 +92,13 @@ public final class ConnectionHandler implements Runnable {
         }
     }
 
-    /* ----- worker file download (dedicated connection) ----- */
+    /* worker file download (dedicated connection) */
 
     private void handleFetch(Connection conn, WorkerMessages.FetchFiles req) throws IOException {
         File sub = server.getJobs().subFile(req.jobId, req.workerIndex);
         File connections = server.getJobs().connectionsFile(req.jobId);
-        // The job may have been torn down (Done/Failed/Aborted) and its inputs cleaned up while this
-        // worker was still asking for them. Tell the worker explicitly rather than letting sendFile
-        // throw and reset the socket — the worker reads this and abandons silently.
+        // The job may have been torn down and its inputs cleaned up while this worker was still
+        // fetching. Tell it explicitly instead of letting sendFile throw and reset the socket.
         if (!sub.exists() || !connections.exists()) {
             server.getLog().log("Fetch for job " + req.jobId + " w" + req.workerIndex
                 + " declined: input files no longer available (job torn down).");
@@ -116,7 +110,7 @@ public final class ConnectionHandler implements Runnable {
         StreamUtil.sendFile(conn, connections);
     }
 
-    /* ----- client connection ----- */
+    /* client connection */
 
     private void handleClient(Connection conn, Message first)
             throws IOException, ClassNotFoundException {
@@ -141,7 +135,7 @@ public final class ConnectionHandler implements Runnable {
     private void handleSubmit(Connection conn, ClientMessages.SubmitJobRequest req)
             throws IOException {
         ServerJob job = server.getJobs().create(req.spec);
-        // Stream the two input files straight to disk (Test 7 — never held whole in memory).
+        // stream the inputs straight to disk
         StreamUtil.receiveFile(conn, server.getJobs().componentsFile(job.id));
         StreamUtil.receiveFile(conn, server.getJobs().connectionsFile(job.id));
         try {
@@ -152,7 +146,7 @@ public final class ConnectionHandler implements Runnable {
             conn.send(new ClientMessages.SubmitJobResponse(job.id));
             server.schedule();
         } catch (ConfigException e) {
-            // Invalid configuration (Test 6): the job exists but is Failed with a clear reason.
+            // invalid config: the job exists but is Failed with a clear reason
             server.getJobs().setStatus(job, JobStatus.Failed, e.getMessage(), null);
             server.getJobs().cleanupInputs(job.id);
             conn.send(new ClientMessages.SubmitJobResponse(job.id));
@@ -176,7 +170,7 @@ public final class ConnectionHandler implements Runnable {
         }
         File result = server.getJobs().resultFile(jobId);
         boolean available = job.status == JobStatus.Done && result.exists();
-        // The result size travels in JobInfo (info.getResultSize()), so it is not repeated here.
+        // result size travels in JobInfo, so it isn't repeated here
         conn.send(new ClientMessages.ResultResponse(job.toInfo(), available));
         if (available) {
             StreamUtil.sendFile(conn, result);

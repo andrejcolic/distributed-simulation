@@ -8,9 +8,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import common.Connection;
 
-/**
- * Thread-safe registry of currently connected workers.
- */
+// Thread-safe registry of connected workers.
 public final class WorkerRegistry {
 
     private final Map<String, WorkerHandle> workers = new LinkedHashMap<>();
@@ -24,7 +22,7 @@ public final class WorkerRegistry {
         return handle;
     }
 
-    /** All workers that currently have a free slot. */
+    // Workers that currently have a free slot.
     public synchronized List<WorkerHandle> available() {
         List<WorkerHandle> result = new ArrayList<>();
         for (WorkerHandle w : workers.values()) {
@@ -41,7 +39,7 @@ public final class WorkerRegistry {
         }
     }
 
-    /** A worker with a free slot, or {@code null} if all are busy / none connected. */
+    // A worker with a free slot, or null if none.
     public synchronized WorkerHandle findAvailable() {
         for (WorkerHandle w : workers.values()) {
             if (w.hasFreeSlot()) {

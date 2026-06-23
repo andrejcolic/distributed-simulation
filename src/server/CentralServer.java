@@ -5,29 +5,27 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import common.DistributedSubJobSpec;
 import common.JobStatus;
 import common.Logger;
 import common.msg.WorkerMessages;
 
-/**
- * Central server: accepts connections (one thread per connection), keeps the job and worker
- * registries, splits each job across the available workers, and coordinates the conservative
- * time barrier and result collection per job.
- */
+// Central server: accepts connections (one thread each), keeps the job/worker registries, splits
+// each job across the free workers, and coordinates the time barrier and result merge per job.
 public final class CentralServer {
 
     private final int port;
     private final Logger log;
     private final JobManager jobs;
     private final WorkerRegistry workers = new WorkerRegistry();
-    private final Map<String, JobCoordinator> coordinators = new HashMap<>();
+    // Atomic map; "claim then act" uses remove(key, value) so each job is handled once.
+    private final Map<String, JobCoordinator> coordinators = new ConcurrentHashMap<>();
 
-    /** One lock for all scheduling and worker slot-count changes (prevents double assignment). */
+    // One lock for scheduling and worker slot counts (prevents double assignment).
     private final Object scheduleLock = new Object();
 
     private volatile boolean running = true;
@@ -86,14 +84,13 @@ public final class CentralServer {
         }
     }
 
-    /** Records that a worker is alive (called whenever any message is received from it). */
     void touch(WorkerHandle worker) {
         worker.touch();
     }
 
-    /* ----- scheduling ----- */
+    /* scheduling */
 
-    /** Splits each Ready job across all currently free workers and assigns the sub-jobs. */
+    // Splits each Ready job across the free workers and assigns the sub-jobs.
     void schedule() {
         synchronized (scheduleLock) {
             while (true) {
@@ -128,9 +125,7 @@ public final class CentralServer {
         for (WorkerHandle w : chosen) {
             w.active++;
         }
-        synchronized (coordinators) {
-            coordinators.put(job.id, coordinator);
-        }
+        coordinators.put(job.id, coordinator);
 
         for (int i = 0; i < chosen.size(); i++) {
             try {
@@ -143,9 +138,7 @@ public final class CentralServer {
                     w.active--;
                 }
                 workers.unregister(chosen.get(i));
-                synchronized (coordinators) {
-                    coordinators.remove(job.id);
-                }
+                coordinators.remove(job.id);
                 jobs.setStatus(job, JobStatus.Ready, "reassign after worker loss", null);
                 return false;
             }
@@ -155,23 +148,17 @@ public final class CentralServer {
         return true;
     }
 
-    /* ----- message routing from ConnectionHandler ----- */
+    /* messages from ConnectionHandler */
 
     void onSyncReport(WorkerMessages.SyncReport report) {
-        JobCoordinator coordinator;
-        synchronized (coordinators) {
-            coordinator = coordinators.get(report.jobId);
-        }
+        JobCoordinator coordinator = coordinators.get(report.jobId);
         if (coordinator != null) {
             coordinator.onReport(report);
         }
     }
 
     void onSubJobDone(String jobId, int workerIndex, String[][] states) {
-        JobCoordinator coordinator;
-        synchronized (coordinators) {
-            coordinator = coordinators.get(jobId);
-        }
+        JobCoordinator coordinator = coordinators.get(jobId);
         if (coordinator == null) {
             return;
         }
@@ -182,10 +169,7 @@ public final class CentralServer {
     }
 
     void onSubJobFailed(String jobId, int workerIndex, String reason) {
-        JobCoordinator coordinator;
-        synchronized (coordinators) {
-            coordinator = coordinators.remove(jobId);
-        }
+        JobCoordinator coordinator = coordinators.remove(jobId);
         if (coordinator == null) {
             // Already handled (e.g. a worker loss is restarting this job) — ignore stray failures.
             return;
@@ -201,12 +185,9 @@ public final class CentralServer {
         schedule();
     }
 
-    /** Aborts a job at the user's request: cancels any running sub-jobs and releases resources. */
+    // User abort: cancel any running sub-jobs and release resources.
     void abortJob(ServerJob job) {
-        JobCoordinator coordinator;
-        synchronized (coordinators) {
-            coordinator = coordinators.remove(job.id);
-        }
+        JobCoordinator coordinator = coordinators.remove(job.id);
         if (coordinator != null) {
             cancelOthers(coordinator, null);
             releaseSlots(coordinator.workers());
@@ -216,11 +197,7 @@ public final class CentralServer {
         schedule();
     }
 
-    /**
-     * Declares a worker lost (heartbeat timeout or broken connection). Idempotent: the actual
-     * loss handling runs exactly once. Any job the worker was part of is restarted on the
-     * remaining workers (Test 3).
-     */
+    // Declares a worker lost (idempotent). Any job it was running restarts on the remaining workers.
     void markDead(WorkerHandle worker, String reason) {
         if (worker == null) {
             return;
@@ -235,12 +212,10 @@ public final class CentralServer {
         workers.unregister(worker);
 
         List<JobCoordinator> affected = new ArrayList<>();
-        synchronized (coordinators) {
-            for (JobCoordinator c : new ArrayList<>(coordinators.values())) {
-                if (c.workers().contains(worker)) {
-                    affected.add(c);
-                    coordinators.remove(c.jobId());
-                }
+        for (JobCoordinator c : coordinators.values()) {
+            // claim atomically: remove(key, value) wins only once, so no double-handling
+            if (c.workers().contains(worker) && coordinators.remove(c.jobId(), c)) {
+                affected.add(c);
             }
         }
         for (JobCoordinator c : affected) {
@@ -259,7 +234,7 @@ public final class CentralServer {
         schedule();
     }
 
-    /** Sends CancelSubJob to every worker of the coordinator except {@code skip}. */
+    // Sends CancelSubJob to the coordinator's workers except `skip`.
     private void cancelOthers(JobCoordinator coordinator, WorkerHandle skip) {
         for (WorkerHandle w : coordinator.workers()) {
             if (w == skip || w.dead) {
@@ -275,14 +250,15 @@ public final class CentralServer {
     }
 
     private void finishJob(JobCoordinator coordinator) {
+        // Claim the job first: if a concurrent worker-loss/abort already removed it, do nothing.
+        if (!coordinators.remove(coordinator.jobId(), coordinator)) {
+            return;
+        }
         ServerJob job = jobs.get(coordinator.jobId());
         if (job != null) {
             jobs.writeResult(job, coordinator.mergedStates());
             jobs.setStatus(job, JobStatus.Done, null, null);
-            jobs.cleanupInputs(job.id); // release large input files (Test 7)
-        }
-        synchronized (coordinators) {
-            coordinators.remove(coordinator.jobId());
+            jobs.cleanupInputs(job.id); // free large input files
         }
         releaseSlots(coordinator.workers());
         schedule();

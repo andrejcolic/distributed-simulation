@@ -4,12 +4,8 @@ import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
 
-/**
- * A sub-job assigned to one worker as part of a distributed run. Carries only metadata: the
- * worker's index, the routing table ({@code componentId -> owning worker index}) and the peer
- * endpoints. The worker downloads its component split and the connections file separately
- * (streamed), so large inputs are never embedded in this message (Test 7).
- */
+// One worker's part of a distributed run: its index, the routing table and the peer addresses.
+// Input files are downloaded separately, not embedded here.
 public class DistributedSubJobSpec implements Serializable {
 
     private final String jobId;

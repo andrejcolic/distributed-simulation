@@ -21,18 +21,10 @@ import common.JobSpec;
 import common.JobStatus;
 import common.Logger;
 
-/**
- * Thread-safe registry of jobs with persistence on disk, so job state survives a server restart
- * and a client disconnect (Test 2). Each job lives in {@code jobs/<id>/}:
- * <ul>
- *   <li>{@code spec.ser} — serialized {@link JobSpec} metadata (type, end time, output name),</li>
- *   <li>{@code components.txt} / {@code connections.txt} — the streamed input files (Test 7),</li>
- *   <li>{@code sub_w&lt;i&gt;.txt} — per-worker component splits,</li>
- *   <li>{@code status.properties} — status, timestamps, message, result size,</li>
- *   <li>{@code result.txt} — the merged output (written when Done).</li>
- * </ul>
- * Input files are streamed (never held whole in memory) and deleted when the job finishes.
- */
+// Thread-safe job registry persisted on disk, so job state survives a server restart or a client
+// disconnect. Each job lives in jobs/<id>/: spec.ser (metadata), components.txt/connections.txt
+// (inputs), sub_w<i>.txt (per-worker splits), status.properties, result.txt. Inputs are deleted
+// when the job finishes.
 public final class JobManager {
 
     private final File baseDir;
@@ -47,7 +39,7 @@ public final class JobManager {
         loadFromDisk();
     }
 
-    /** Allocates a new job (its directory) for the given metadata; input files arrive separately. */
+    // Allocates a new job (and its directory); input files arrive separately.
     public synchronized ServerJob create(JobSpec spec) {
         String id = "j" + seq.incrementAndGet();
         ServerJob job = new ServerJob(id, spec, System.currentTimeMillis());
@@ -76,7 +68,7 @@ public final class JobManager {
         return null;
     }
 
-    /** Marks a job eligible for scheduling once its input files have arrived and validated. */
+    // Marks a job eligible for scheduling once its inputs have arrived and validated.
     public synchronized void markSchedulable(ServerJob job) {
         job.schedulable = true;
     }
@@ -100,11 +92,8 @@ public final class JobManager {
             + (message != null && !message.isEmpty() ? " (" + message + ")" : ""));
     }
 
-    /**
-     * Writes the merged component states to {@code result.txt} (one component per line), sorted by
-     * component id so the output is deterministic regardless of how the job was split. The states
-     * are written line by line, never building one giant string.
-     */
+    // Writes merged states to result.txt, one per line, sorted by component id (deterministic
+    // regardless of how the job was split). Written line by line, never one giant string.
     public synchronized void writeResult(ServerJob job, String[][] states) {
         String[][] sorted = states.clone();
         Arrays.sort(sorted, Comparator.comparingLong(JobManager::leadingId));
@@ -123,7 +112,7 @@ public final class JobManager {
         job.resultSize = out.length();
     }
 
-    /** Releases large input files once a job is finished (Test 7 — resource release). */
+    // Deletes the large input files once a job is finished.
     public synchronized void cleanupInputs(String id) {
         File dir = jobDir(id);
         File[] files = dir.listFiles((d, n) ->
@@ -232,8 +221,7 @@ public final class JobManager {
         }
         ServerJob job = new ServerJob(id, spec, parseLong(p.getProperty("submittedAt")));
         JobStatus saved = JobStatus.valueOf(p.getProperty("status", "Ready"));
-        // Jobs that were mid-flight when the server stopped are re-queued so they get
-        // reassigned to a worker (Test 2/3) — provided their input files still exist.
+        // Jobs that were mid-flight when the server stopped are re-queued (if their inputs survive).
         if (saved == JobStatus.Scheduled || saved == JobStatus.Running) {
             if (componentsFile(id).exists() && connectionsFile(id).exists()) {
                 saved = JobStatus.Ready;

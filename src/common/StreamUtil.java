@@ -12,22 +12,14 @@ import java.util.Arrays;
 
 import common.msg.FileChunk;
 
-/**
- * Helpers for streaming files in chunks (Test 7). The whole file is never loaded into
- * memory; all streams are closed in {@code try-with-resources}.
- */
+// Streams files in chunks so a large file is never held whole in memory.
 public final class StreamUtil {
 
-    /** Transfer chunk size (64 KB). */
-    public static final int CHUNK = 64 * 1024;
+    public static final int CHUNK = 64 * 1024; // 64 KB
 
-    private StreamUtil() {
-    }
+    private StreamUtil() {}
 
-    /**
-     * Send a file over the connection as a sequence of {@link FileChunk}s. The last chunk
-     * has {@code last=true}. Returns the number of bytes sent.
-     */
+    // Sends a file as a sequence of chunks, ending with a null-data chunk. Returns bytes sent.
     public static long sendFile(Connection conn, File file) throws IOException {
         long total = 0;
         try (InputStream rawIn = new BufferedInputStream(new FileInputStream(file))) {
@@ -42,10 +34,7 @@ public final class StreamUtil {
         return total;
     }
 
-    /**
-     * Receive {@link FileChunk}s until {@code last} arrives and write them to a file.
-     * Returns the number of bytes received.
-     */
+    // Receives chunks (until the null-data marker) into a file. Returns bytes received.
     public static long receiveFile(Connection conn, File target) throws IOException {
         long total = 0;
         File parent = target.getParentFile();
@@ -75,7 +64,7 @@ public final class StreamUtil {
         return total;
     }
 
-    /** Copy a stream to another in chunks (e.g. saving an uploaded file to disk). */
+    // Copy a stream to another in chunks.
     public static long copy(InputStream in, OutputStream out) throws IOException {
         byte[] buf = new byte[CHUNK];
         long total = 0;

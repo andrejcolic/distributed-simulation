@@ -15,16 +15,11 @@ import sleep.simulation.Netlist;
 import sleep.simulation.Simulator;
 import sleep.simulation.SimulatorSinglethread;
 
-/**
- * One distributed sub-job running on this worker. Sets up peer connections, runs the simulation
- * with a {@link DistributedSimBuffer}, and drives the conservative time barrier coordinated by
- * the server.
- *
- * <p>The simulation engine is {@code SimulatorSinglethread} regardless of the requested type:
- * the conservative barrier enforces global timestamp order, so processing the global-minimum
- * event each step yields t same result as a single-machine single-threaded run. (Optimistic /
- * Time Warp across machines is the documented alternative, not implemented here.)
- */
+// One sub-job running on this worker: sets up peer connections, runs the simulation with a
+// DistributedSimBuffer, and follows the server-coordinated conservative barrier. The engine is
+// always SimulatorSinglethread — the barrier enforces global timestamp order, so processing the
+// global-minimum event each step matches a single-machine run. (Optimistic/Time Warp is the
+// documented alternative, not implemented here.)
 @SuppressWarnings({"rawtypes", "unchecked"})
 public final class DistributedJob {
 
@@ -62,12 +57,12 @@ public final class DistributedJob {
         new Thread(this::run, "job-" + spec.getJobId() + "-w" + spec.getWorkerIndex()).start();
     }
 
-    /** Delivered by the worker's peer listener when a lower-index peer connects to us. */
+    // Called by the peer listener when a lower-index peer connects to us.
     public void addInboundPeer(int fromIndex, Connection conn) {
         registerPeer(fromIndex, conn);
     }
 
-    /** Delivered by the worker's receive loop when a barrier for this job arrives. */
+    // Called by the receive loop when a barrier for this job arrives.
     public void onBarrier(WorkerMessages.SyncBarrier barrier) {
         synchronized (barrierLock) {
             pendingBarrier = barrier;
@@ -75,10 +70,7 @@ public final class DistributedJob {
         }
     }
 
-    /**
-     * Abandon this sub-job (a peer worker failed; the server is restarting the run elsewhere).
-     * Terminates silently — no SubJobDone / SubJobFailed is sent.
-     */
+    // Abandon this sub-job (a peer failed; the server restarts it). Terminates silently.
     public void cancel() {
         cancelled = true;
         buffer.setTerminated();
@@ -109,14 +101,14 @@ public final class DistributedJob {
             }
         } finally {
             closePeers();
-            deleteLocalFiles(); // release the downloaded input split (Test 7)
+            deleteLocalFiles(); // free the downloaded input split
             if (onComplete != null) {
                 onComplete.run();
             }
         }
     }
 
-    /** The conservative barrier loop: process everything safe, then report and wait. */
+    // The conservative barrier loop: process everything safe, then report and wait.
     private void conservativeLoop(Simulator simulator) {
         buffer.setSafeTime(Long.MIN_VALUE);
         while (!buffer.isTerminated()) {
@@ -156,7 +148,7 @@ public final class DistributedJob {
         }
     }
 
-    /* ----- peer setup ----- */
+    /* peer setup */
 
     private void connectToHigherPeers() throws IOException {
         int self = spec.getWorkerIndex();
@@ -221,7 +213,7 @@ public final class DistributedJob {
         }
     }
 
-    /* ----- helpers ----- */
+    /* helpers */
 
     private void send(Message msg) {
         try {

@@ -14,18 +14,11 @@ import common.msg.PeerMessages;
 import sleep.simulation.Event;
 import sleep.simulation.SimBuffer;
 
-/**
- * Distributed buffer ({@link SimBuffer}) that routes events across workers.
- *
- * <p>{@code putEvents} (called from {@code Simulator.work} via {@code Netlist.transform}) sends
- * each event to the worker that owns its {@code dstID}: local events go into a local
- * {@link PriorityQueue} ordered by {@code lTime}; remote events are serialized and sent to that
- * peer. A peer receiver thread feeds incoming events back into the same local queue.
- *
- * <p>Processing is gated by a conservative <b>safe time</b>: only events with
- * {@code lTime <= safeTime} may be processed. The safe time is advanced by the server-coordinated
- * barrier (see {@link DistributedJob}), which guarantees no earlier event can still arrive.
- */
+// SimBuffer that routes events across workers. putEvents (called from Simulator.work via
+// Netlist.transform) sends each event to the worker owning its dstID: local events go into a
+// PriorityQueue ordered by lTime, remote events are sent to that peer; a receiver thread feeds
+// incoming events back into the same queue. Processing is gated by a conservative safe time: only
+// events with lTime <= safeTime run, and the barrier (see DistributedJob) advances safeTime.
 @SuppressWarnings({"rawtypes", "unchecked"})
 public final class DistributedSimBuffer implements SimBuffer {
 
@@ -45,12 +38,12 @@ public final class DistributedSimBuffer implements SimBuffer {
         this.selfIndex = selfIndex;
     }
 
-    /** Registers a peer connection (called during peer setup, before the run starts). */
+    // Registers a peer connection (during setup, before the run starts).
     public void setPeer(int index, Connection connection) {
         peers.put(index, connection);
     }
 
-    /* ----- SimBuffer ----- */
+    /* SimBuffer */
 
     @Override
     public void putEvent(Event event) {
@@ -119,9 +112,9 @@ public final class DistributedSimBuffer implements SimBuffer {
         return e == null ? Long.MAX_VALUE : e.getlTime();
     }
 
-    /* ----- conservative control ----- */
+    /* conservative control */
 
-    /** Returns the next event if it is within the safe time, otherwise {@code null}. */
+    // Returns the next event if it is within the safe time, else null.
     public synchronized Event pollProcessable() {
         if (terminated || queue.isEmpty()) {
             return null;
@@ -156,7 +149,7 @@ public final class DistributedSimBuffer implements SimBuffer {
         return received.get();
     }
 
-    /** Called by a peer receiver thread when a batch of events arrives. */
+    // Called by a peer receiver thread when a batch of events arrives.
     public void receiveEvents(List<Object> events) {
         synchronized (this) {
             for (Object o : events) {
@@ -167,7 +160,7 @@ public final class DistributedSimBuffer implements SimBuffer {
         received.addAndGet(events.size());
     }
 
-    /* ----- internals ----- */
+    /* internals */
 
     private int ownerOf(Event e) {
         Integer owner = routing.get(e.getDstID());
@@ -190,8 +183,7 @@ public final class DistributedSimBuffer implements SimBuffer {
             conn.send(new PeerMessages.RouteEvents(batch));
             sent.addAndGet(batch.size());
         } catch (IOException ex) {
-            // Peer unreachable: surface as a runtime failure for this sub-job (fault tolerance
-            // / restart is handled in a later celina).
+            // peer unreachable: fail this sub-job (the server restarts it)
             throw new RuntimeException("Peer " + owner + " unreachable: " + ex.getMessage(), ex);
         }
     }

@@ -2,10 +2,7 @@ package server;
 
 import common.Connection;
 
-/**
- * Server-side handle for one registered worker: its connection, peer listener address (so other
- * workers can reach it), declared parallel capacity, and the number of jobs currently running.
- */
+// Server-side handle for one worker: its connection, peer address, capacity, and active-job count.
 public class WorkerHandle {
 
     final String id;
@@ -16,10 +13,8 @@ public class WorkerHandle {
     final int capacity;
     int active;
 
-    /** Last time anything was heard from this worker (heartbeat liveness). */
-    volatile long lastSeen;
-    /** Set once when the worker is declared lost, so loss is handled exactly once. */
-    volatile boolean dead;
+    volatile long lastSeen;   // last time anything was heard (heartbeat)
+    volatile boolean dead;    // set once when declared lost
 
     WorkerHandle(String id, String name, Connection connection,
                  String peerHost, int peerPort, int capacity) {

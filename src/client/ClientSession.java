@@ -11,17 +11,10 @@ import common.StreamUtil;
 import common.msg.ClientMessages;
 import common.msg.Message;
 
-/**
- * Reusable client API toward the central server. Each call opens its own short-lived connection
- * and closes it, so the client owns no long-lived link — it may disconnect and reconnect at any
- * time and still ask for results later by job id (Test 2).
- *
- * <p>Large files are streamed in chunks (Test 7): submission streams the two input files and result
- * retrieval streams the output file, so nothing is held whole in memory.
- *
- * <p>If the host/port points at a non-protocol server (e.g. a web server, Test 5), the handshake
- * fails and the call throws {@link IOException} with a clear reason instead of hanging.
- */
+// Client API toward the server. Each call opens a short-lived connection and closes it, so the
+// client owns no long-lived link — it can disconnect and reconnect and still ask for results by
+// job id. Files are streamed in chunks. If the host/port is a non-protocol server (e.g. a web
+// server), the handshake fails and the call throws IOException with a clear reason instead of hanging.
 public final class ClientSession {
 
     private final String host;
@@ -36,7 +29,7 @@ public final class ClientSession {
         return new JobSpec(type, endTime, outputName);
     }
 
-    /** Submits a job: sends the metadata, then streams the two input files. Returns the job id. */
+    // Sends the job metadata, then streams the two input files. Returns the job id.
     public String submit(JobSpec spec, File componentsFile, File connectionsFile)
             throws IOException {
         try (Connection conn = Connection.connect(host, port)) {
@@ -62,10 +55,8 @@ public final class ClientSession {
         }
     }
 
-    /**
-     * Fetches the result into {@code dest} if it is available (streamed in chunks). Returns the
-     * {@link JobInfo} header; {@code dest} is written only when the result is advertised.
-     */
+    // Fetches the result into dest if available (streamed). Returns the JobInfo header; dest is
+    // written only when a result is advertised.
     public JobInfo fetchResult(String jobId, File dest) throws IOException {
         try (Connection conn = Connection.connect(host, port)) {
             conn.send(new ClientMessages.ResultRequest(jobId));

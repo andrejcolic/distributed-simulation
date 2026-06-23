@@ -13,13 +13,9 @@ import java.awt.TextArea;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 
-/**
- * Pure-AWT GUI for a worker (no Swing). Shows the live registration/connection state, the parallel
- * capacity, the number of active jobs, and a scrolling activity log fed by {@link Worker}'s status
- * hook. The worker runtime runs on its own thread, so no network call ever touches the AWT thread.
- */
+// AWT GUI for a worker: registration/connection state, capacity, active-job count, and a scrolling
+// activity log fed by Worker's status hook. The worker runtime runs on its own thread.
 public final class WorkerGUI extends Frame {
-
 
     private final Worker worker;
     private final String serverHost;
@@ -89,7 +85,7 @@ public final class WorkerGUI extends Frame {
         EventQueue.invokeLater(() -> logArea.append(line + "\n"));
     }
 
-    /** Polls the worker's live counters once a second (the worker has no push for these). */
+    // Polls the worker's live counters once a second (there is no push for these).
     private void startStateRefresher() {
         Thread t = new Thread(() -> {
             while (worker.isRunning()) {

@@ -2,16 +2,12 @@ package common.msg;
 
 import java.util.List;
 
-/**
- * Messages for the Worker &harr; Worker (peer) channel: a hello that identifies the connecting
- * worker for a job, and batches of routed simulation events.
- */
+// Messages for the Worker <-> Worker (peer) channel.
 public final class PeerMessages {
 
-    private PeerMessages() {
-    }
+    private PeerMessages() {}
 
-    /** First message on a peer connection: which job and which worker is connecting. */
+    // First message on a peer connection: which job and which worker is connecting.
     public static final class PeerHello implements Message {
         public final String jobId;
         public final int fromIndex;
@@ -22,10 +18,7 @@ public final class PeerMessages {
         }
     }
 
-    /**
-     * A batch of simulation events routed to this peer. Events are carried as {@code Object}
-     * (they are {@code sleep.simulation.Event}, which is {@code Serializable}).
-     */
+    // A batch of routed simulation events (carried as Object = sleep.simulation.Event).
     public static final class RouteEvents implements Message {
         public final List<Object> events;
 

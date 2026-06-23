@@ -15,12 +15,9 @@ import common.DistributedSubJobSpec;
 import common.JobSpec;
 import common.PeerEndpoint;
 
-/**
- * Splits a job into one sub-job per worker. The components file is read line by line and each line
- * is written to one worker's split file round-robin (so each worker gets roughly the same count);
- * the file is never held whole in memory (Test 7). Every worker receives all connections plus a
- * routing table ({@code componentId -> worker index}) and the peer endpoints.
- */
+// Splits a job into one sub-job per worker: reads the components file line by line and writes each
+// line to one worker's split round-robin (≈ equal counts). Every worker gets all connections plus a
+// routing table (componentId -> worker index) and the peer endpoints.
 public final class Partitioner {
 
     private Partitioner() {

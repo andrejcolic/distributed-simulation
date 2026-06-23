@@ -14,14 +14,10 @@ import java.awt.event.WindowEvent;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Pure-AWT GUI for the central server (no Swing). Shows the live job list with statuses, the list
- * of connected workers with their capacities, and the server log. A "Прекини посао" button aborts
- * the selected job. Everything that touches the network/registries is read on a background refresh
- * thread and pushed to the AWT thread via {@link EventQueue#invokeLater}.
- */
+// AWT GUI for the central server: live job list with statuses, connected workers with capacities,
+// and the server log; the abort button aborts the selected job. State is read on a background
+// thread and pushed to the AWT thread via EventQueue.invokeLater.
 public final class ServerGUI extends Frame {
-
 
     private final CentralServer server;
     private final int port;
@@ -31,7 +27,7 @@ public final class ServerGUI extends Frame {
     private final TextArea logArea = new TextArea("", 10, 100,
         TextArea.SCROLLBARS_VERTICAL_ONLY);
 
-    /** Job ids in the same order as {@link #jobList} rows, so a selection maps back to a job. */
+    // Job ids in the same order as the jobList rows, so a selection maps back to a job.
     private final List<String> jobIds = new ArrayList<>();
 
     public ServerGUI(CentralServer server, int port) {

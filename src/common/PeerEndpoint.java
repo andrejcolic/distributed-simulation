@@ -2,10 +2,7 @@ package common;
 
 import java.io.Serializable;
 
-/**
- * Network address (host + port) of a worker's peer listener, used so workers can connect to
- * each other and exchange simulation events directly (peer-to-peer routing).
- */
+// Address of a worker's peer listener, so workers can exchange events directly.
 public class PeerEndpoint implements Serializable {
 
     public final String host;

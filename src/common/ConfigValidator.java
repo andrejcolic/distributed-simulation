@@ -9,12 +9,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * Job-independent structural validation of a job (Test 6), reading the files line by line so large
- * inputs (Test 7) are never loaded whole into memory. It does not instantiate components (the
- * worker does that via reflection); it only checks the format that would otherwise <i>silently</i>
- * fail in {@code Netlist.addComponent} (which merely calls {@code printStackTrace}).
- */
+// Structural validation of a job's input files (read line by line). Catches bad input up front,
+// since Netlist.addComponent would otherwise just printStackTrace and skip a broken component.
 public final class ConfigValidator {
 
     private ConfigValidator() {
@@ -84,7 +80,7 @@ public final class ConfigValidator {
             while ((line = in.readLine()) != null) {
                 row++;
                 if (row == 1) {
-                    continue; // first row is the HEADER and is skipped (as in TestG)
+                    continue; // header row
                 }
                 if (isBlank(line)) {
                     continue;

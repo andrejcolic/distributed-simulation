@@ -24,15 +24,11 @@ import common.JobSpec;
 import common.JobType;
 import common.Protocol;
 
-/**
- * Pure-AWT GUI for the client (no Swing). Lets the user pick the components/connections files,
- * choose the simulation type and end time, submit the job, and later — possibly after the client
- * was killed and restarted (Test 2) — look up status, fetch the result file, or abort, all keyed by
- * job id from the on-disk {@link TicketStore}. Every network call runs on a background thread, so a
- * slow or wrong server (Test 5) never freezes the UI.
- */
+// AWT GUI for the client: pick the components/connections files, choose the simulation type and end
+// time, submit, and later look up status, fetch the result, or abort — keyed by job id from the
+// on-disk TicketStore. Every network call runs on a background thread, so a slow/wrong server never
+// freezes the UI.
 public final class ClientGUI extends Frame {
-
 
     private final TextField hostField = new TextField("localhost", 12);
     private final TextField portField =
@@ -282,7 +278,7 @@ public final class ClientGUI extends Frame {
         });
     }
 
-    /** Builds a session from the current host/port fields, logging a clear error on bad input. */
+    // Builds a session from the current host/port fields; logs a clear error on bad input.
     private ClientSession session() {
         try {
             return new ClientSession(hostField.getText().trim(),

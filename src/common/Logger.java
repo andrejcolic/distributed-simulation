@@ -13,11 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
-/**
- * Simple thread-safe log: writes to a file (survives restarts) and to the console, and
- * optionally forwards lines to a GUI via a listener. Used by the server (section 7),
- * but is general-purpose.
- */
+// Thread-safe log: writes to a file and the console, and optionally forwards lines to a GUI.
 public final class Logger {
 
     private static final DateTimeFormatter TS =
@@ -38,7 +34,7 @@ public final class Logger {
         }
     }
 
-    /** Register a GUI listener (e.g. appending to a JTextArea). */
+    // Register a GUI listener (e.g. append to a text area).
     public synchronized void addListener(Consumer<String> listener) {
         listeners.add(listener);
     }

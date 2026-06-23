@@ -10,10 +10,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Local, on-disk store of job tickets (jobId + output name). Lets the client recover what to
- * ask for after it is killed and restarted (Test 2). One line per ticket: {@code jobId\toutputName}.
- */
+// On-disk store of job tickets (jobId + output name), so the client knows what to ask for after a
+// restart. One line per ticket: jobId<TAB>outputName.
 public final class TicketStore {
 
     private final Path file;

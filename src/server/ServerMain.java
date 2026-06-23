@@ -5,12 +5,8 @@ import java.io.IOException;
 
 import common.Protocol;
 
-/**
- * Central server entry point. Shows the AWT GUI by default; pass {@code --headless} (or run on a
- * headless host) to start without a window.
- *
- * Usage: {@code java server.ServerMain [serverPort] [--headless]}
- */
+// Server entry point. Shows the AWT GUI by default; --headless (or a headless host) starts without
+// a window. Usage: java server.ServerMain [serverPort] [--headless]
 public class ServerMain {
 
     public static void main(String[] args) {

@@ -11,12 +11,9 @@ import java.util.List;
 
 import sleep.simulation.Netlist;
 
-/**
- * Builds a {@link Netlist} from files using the given framework's reflection loader, reading line
- * by line so large inputs (Test 7) are never loaded whole into memory. A worker builds only its
- * own components but adds <b>all</b> connections, so {@code Netlist.transform} can route events to
- * remote components too.
- */
+// Builds a Netlist from files via the framework's reflection loader, reading line by line. A worker
+// builds only its own components but adds all connections, so Netlist.transform can also route
+// events to remote components.
 @SuppressWarnings({"rawtypes", "unchecked"})
 public final class NetlistBuilder {
 
@@ -37,8 +34,8 @@ public final class NetlistBuilder {
                 netlist.addComponent(line.trim().split("\\s+"));
             }
         }
-        // Netlist.addComponent swallows reflection errors (printStackTrace) and just skips the
-        // component. Detect that here so a bad class name surfaces as a failure (Test 6).
+        // Netlist.addComponent swallows reflection errors and skips the component; detect that here
+        // so a bad class name surfaces as a failure instead of silently vanishing.
         int loaded = netlist.getComponents().size();
         if (loaded < expected) {
             throw new IllegalStateException("Failed to load components by reflection: expected "
@@ -46,7 +43,7 @@ public final class NetlistBuilder {
                 + " (check class names on the worker classpath).");
         }
 
-        // The first connection line is the HEADER and is skipped (as in TestG).
+        // skip the header line
         List<String[]> rows = new ArrayList<>();
         try (BufferedReader in = reader(connectionsFile)) {
             String line;

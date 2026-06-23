@@ -2,21 +2,14 @@ package common.msg;
 
 import common.DistributedSubJobSpec;
 
-/**
- * Messages for the Server &harr; Worker channel. Grouped as nested static classes
- * (all {@link Message} / {@code Serializable}).
- */
+// Messages for the Server <-> Worker channel.
 public final class WorkerMessages {
 
-    private WorkerMessages() {
-    }
+    private WorkerMessages() {}
 
-    /* ----- Worker -> Server ----- */
+    /* Worker -> Server */
 
-    /**
-     * Sent right after the worker starts: parallel capacity plus the port of the worker's peer
-     * listener (so the server can tell other workers how to reach this one).
-     */
+    // Sent on startup: parallel capacity + the worker's peer-listener port.
     public static final class RegisterRequest implements Message {
         public final String name;
         public final int capacity;
@@ -29,7 +22,7 @@ public final class WorkerMessages {
         }
     }
 
-    /** Worker reports it has reached the target time and returns its components' states. */
+    // Worker reached the target time; returns its components' states.
     public static final class SubJobDone implements Message {
         public final String jobId;
         public final int workerIndex;
@@ -54,11 +47,8 @@ public final class WorkerMessages {
         }
     }
 
-    /**
-     * Conservative time-sync report: this worker is locally quiescent at the current safe time.
-     * {@code localMin} is the smallest timestamp left in its queue ({@code Long.MAX_VALUE} if
-     * empty); {@code sent}/{@code received} are cumulative peer-event counts for in-flight detection.
-     */
+    // This worker is idle at the current safe time. localMin is its smallest queued timestamp
+    // (Long.MAX_VALUE if empty); sent/received are cumulative peer-event counts (in-flight check).
     public static final class SyncReport implements Message {
         public final String jobId;
         public final int workerIndex;
@@ -75,11 +65,11 @@ public final class WorkerMessages {
         }
     }
 
-    /** Worker's reply to a {@link Ping}; proves it is still alive (heartbeat). */
+    // Reply to Ping (heartbeat).
     public static final class Pong implements Message {
     }
 
-    /* ----- Server -> Worker ----- */
+    /* Server -> Worker */
 
     public static final class RegisterResponse implements Message {
         public final boolean ok;
@@ -99,11 +89,8 @@ public final class WorkerMessages {
         }
     }
 
-    /**
-     * Conservative time-sync barrier: advance the safe time to {@code safeTime} (process events
-     * up to it), or {@code terminate} the run. A barrier with an unchanged {@code safeTime} and
-     * {@code terminate=false} is a "recheck" (messages were still in flight).
-     */
+    // Advance to safeTime, or terminate. Same safeTime with terminate=false means "recheck"
+    // (peer messages were still in flight).
     public static final class SyncBarrier implements Message {
         public final String jobId;
         public final long safeTime;
@@ -116,15 +103,11 @@ public final class WorkerMessages {
         }
     }
 
-    /** Heartbeat request the server sends every x seconds. */
+    // Heartbeat request.
     public static final class Ping implements Message {
     }
 
-    /**
-     * First message on a dedicated download connection: the worker asks the server to stream its
-     * input files (its component split, then all connections). Kept off the control connection so
-     * large transfers (Test 7) do not interleave with control messages.
-     */
+    // Worker asks the server to stream its input split, on a separate download connection.
     public static final class FetchFiles implements Message {
         public final String jobId;
         public final int workerIndex;
@@ -135,13 +118,8 @@ public final class WorkerMessages {
         }
     }
 
-    /**
-     * Reply to {@link FetchFiles}, sent before any file bytes. {@code available=false} means the
-     * job's input files are gone (the job was torn down — finished, failed, or aborted — while the
-     * worker was fetching). The worker then abandons silently instead of receiving an abrupt socket
-     * reset and misreporting it as a failure. Closes the time-of-check/time-of-use race against
-     * {@code JobManager.cleanupInputs}.
-     */
+    // Reply before any file bytes. available=false means the inputs are gone (job torn down),
+    // so the worker abandons silently instead of seeing an abrupt socket reset.
     public static final class FetchResponse implements Message {
         public final boolean available;
         public final String reason;
@@ -152,10 +130,7 @@ public final class WorkerMessages {
         }
     }
 
-    /**
-     * Tells a worker to abandon its sub-job for {@code jobId}: the run is being restarted on the
-     * remaining workers because a peer worker failed. The worker tears down without reporting.
-     */
+    // Tells a worker to drop its sub-job (the run is restarting on the remaining workers).
     public static final class CancelSubJob implements Message {
         public final String jobId;
 

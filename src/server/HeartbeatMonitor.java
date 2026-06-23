@@ -5,11 +5,8 @@ import java.io.IOException;
 import common.Protocol;
 import common.msg.WorkerMessages;
 
-/**
- * Periodically pings every registered worker and declares a worker dead if a ping cannot be sent
- * or nothing has been heard from it within {@link Protocol#HEARTBEAT_TIMEOUT_MS}. A dead worker is
- * reported to the server, which restarts that worker's job on the remaining workers (Test 3).
- */
+// Pings every worker periodically and declares one dead if a ping fails or nothing is heard within
+// HEARTBEAT_TIMEOUT_MS. The server then restarts that worker's job on the remaining workers.
 public final class HeartbeatMonitor implements Runnable {
 
     private final CentralServer server;

@@ -3,13 +3,8 @@ package worker;
 import java.awt.GraphicsEnvironment;
 import java.io.IOException;
 
-/**
- * Worker entry point. Shows the AWT GUI by default; pass {@code --headless} (or run on a headless
- * host) for the windowless runtime driven purely from the command line.
- *
- * Usage:
- * {@code java worker.WorkerMain <serverHost> <serverPort> <parallelJobs> [--headless]}
- */
+// Worker entry point. Shows the AWT GUI by default; --headless (or a headless host) runs windowless.
+// Usage: java worker.WorkerMain <serverHost> <serverPort> <parallelJobs> [--headless]
 public class WorkerMain {
 
     public static void main(String[] args) {

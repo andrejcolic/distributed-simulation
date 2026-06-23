@@ -4,10 +4,7 @@ import common.JobInfo;
 import common.JobSpec;
 import common.JobStatus;
 
-/**
- * Server-side state of a single job. Mutable fields are guarded by the owning
- * {@link JobManager}'s monitor.
- */
+// Server-side state of one job; mutable fields are guarded by the JobManager monitor.
 public class ServerJob {
 
     final String id;
@@ -18,8 +15,7 @@ public class ServerJob {
     String message;
     String assignedWorker;
     long resultSize;
-    /** False until the streamed input files have arrived and validated — keeps it off the queue. */
-    boolean schedulable;
+    boolean schedulable; // false until inputs have arrived and validated
 
     ServerJob(String id, JobSpec spec, long submittedAt) {
         this.id = id;

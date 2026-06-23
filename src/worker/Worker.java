@@ -19,13 +19,9 @@ import common.msg.Message;
 import common.msg.PeerMessages;
 import common.msg.WorkerMessages;
 
-/**
- * Worker runtime: connects to the central server, registers its parallel capacity and peer port,
- * then serves assigned distributed sub-jobs. A peer listener accepts connections from other
- * workers so they can exchange simulation events directly.
- *
- * <p>Has no Swing dependency, so it works headless as well.
- */
+// Worker runtime: connects to the server, registers its capacity and peer port, then serves
+// assigned sub-jobs. A peer listener accepts connections from other workers so they can exchange
+// events directly. No GUI dependency, so it also runs headless.
 public final class Worker {
 
     private final String host;
@@ -41,8 +37,7 @@ public final class Worker {
     private volatile ServerSocket peerServer;
     private volatile boolean running = true;
     private volatile boolean connected = false;
-    /** Optional GUI hook: receives every status line (also printed to the console). */
-    private volatile Consumer<String> statusListener;
+    private volatile Consumer<String> statusListener; // optional GUI hook for status lines
 
     public Worker(String host, int port, int capacity) {
         this.host = host;
@@ -75,7 +70,7 @@ public final class Worker {
         this.statusListener = listener;
     }
 
-    /** Prints a status line to the console and forwards it to the GUI listener if present. */
+    // Prints to the console and forwards to the GUI listener if present.
     private void status(String msg) {
         System.out.println(msg);
         Consumer<String> l = statusListener;
@@ -88,7 +83,7 @@ public final class Worker {
         }
     }
 
-    /** Connects, registers and runs the receive loop. Returns when the connection drops. */
+    // Connects, registers, and runs the receive loop. Returns when the connection drops.
     public void run() throws IOException {
         peerServer = new ServerSocket(0);
         int peerPort = peerServer.getLocalPort();
@@ -117,7 +112,7 @@ public final class Worker {
         closePeerServer();
     }
 
-    /* ----- server channel ----- */
+    /* server channel */
 
     private void receiveLoop() {
         while (running) {
@@ -195,13 +190,9 @@ public final class Worker {
         job.start();
     }
 
-    /**
-     * Fetches this worker's input split over a dedicated connection, retrying transient failures.
-     * A single dropped/reset socket should not fail the whole sub-job (which, with cleanup of the
-     * shared inputs, would cascade into a whole-job failure). Returns {@link FetchOutcome#ABANDONED}
-     * when the server reports the inputs are gone (job already torn down — no point retrying), or
-     * {@link FetchOutcome#FAILED} only after every attempt failed.
-     */
+    // Fetches this worker's input split, retrying transient failures (a single reset shouldn't fail
+    // the whole sub-job). Returns ABANDONED if the server says the inputs are gone, FAILED only
+    // after every attempt failed.
     private FetchOutcome fetchInputs(DistributedSubJobSpec sub, File comp, File conn) {
         final int attempts = 3;
         for (int attempt = 1; attempt <= attempts; attempt++) {
@@ -267,7 +258,7 @@ public final class Worker {
         }
     }
 
-    /* ----- peer listener ----- */
+    /* peer listener */
 
     private void startPeerListener() {
         Thread t = new Thread(() -> {

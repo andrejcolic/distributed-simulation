@@ -11,21 +11,10 @@ import java.net.Socket;
 
 import common.msg.Message;
 
-/**
- * Socket wrapper with a magic handshake and messages sent over {@code ObjectStream}s.
- *
- * <p>The handshake is the key to robustness:
- * <ul>
- *   <li><b>Test 4</b> (garbage on the server port): wrong magic → {@link ProtocolException},
- *       the server closes that connection and carries on.</li>
- *   <li><b>Test 5</b> (client connecting to a web server): the foreign protocol does not send
- *       our magic or does not reply in time → timeout/{@link ProtocolException}, the client
- *       reports it cleanly.</li>
- * </ul>
- *
- * <p>Both sides first write the magic and then read it (symmetrically), then create the
- * {@code ObjectOutputStream} before the {@code ObjectInputStream} (avoids a deadlock on headers).
- */
+// Socket wrapper: a magic handshake, then messages over ObjectStreams. A wrong or foreign
+// protocol fails the handshake (with a connect/read timeout) so the connection is rejected, not
+// hung. Both sides write the magic then read it; the output stream is created before the input
+// stream to avoid a deadlock on the ObjectStream headers.
 public final class Connection implements AutoCloseable {
 
     private final Socket socket;
@@ -38,7 +27,7 @@ public final class Connection implements AutoCloseable {
         this.in = in;
     }
 
-    /** Client side: connect and run the handshake with timeouts. */
+    // Client side: connect and run the handshake (with timeouts).
     public static Connection connect(String host, int port) throws IOException {
         Socket socket = new Socket();
         try {
@@ -50,7 +39,7 @@ public final class Connection implements AutoCloseable {
         }
     }
 
-    /** Server side: an accepted socket goes through the same handshake. */
+    // Server side: an accepted socket goes through the same handshake.
     public static Connection accept(Socket socket) throws IOException {
         try {
             return handshake(socket);
@@ -61,7 +50,7 @@ public final class Connection implements AutoCloseable {
     }
 
     private static Connection handshake(Socket socket) throws IOException {
-        // Timeout during the handshake so a foreign/invalid protocol cannot hang the connection.
+        // timeout so a foreign protocol can't hang us
         socket.setSoTimeout(Protocol.HANDSHAKE_TIMEOUT_MS);
 
         DataOutputStream dout = new DataOutputStream(socket.getOutputStream());
@@ -76,8 +65,7 @@ public final class Connection implements AutoCloseable {
                 + Integer.toHexString(Protocol.MAGIC));
         }
 
-        // Handshake OK — clear the read timeout for long-running operations.
-        socket.setSoTimeout(0);
+        socket.setSoTimeout(0); // handshake OK; drop the timeout for long transfers
 
         ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream());
         oos.flush();
@@ -88,12 +76,10 @@ public final class Connection implements AutoCloseable {
     public synchronized void send(Message message) throws IOException {
         out.writeObject(message);
         out.flush();
-        // Prevent the ObjectOutputStream reference table from growing (memory leak on
-        // long-lived connections / large transfers — Test 7).
-        out.reset();
+        out.reset(); // don't let the stream's object table grow on long connections
     }
 
-    /** Blocks until a message arrives; throws {@link IOException} on disconnect/EOF. */
+    // Blocks until a message arrives; throws IOException on disconnect/EOF.
     public Message receive() throws IOException, ClassNotFoundException {
         return (Message) in.readObject();
     }

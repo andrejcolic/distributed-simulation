@@ -8,16 +8,10 @@ import java.util.List;
 import common.Logger;
 import common.msg.WorkerMessages;
 
-/**
- * Coordinates one running distributed job: the conservative time barrier and the collection of
- * per-worker results.
- *
- * <p>Each round, every worker sends a {@link WorkerMessages.SyncReport} once it is locally
- * quiescent. When all K have reported, the coordinator computes the global minimum timestamp and
- * checks for in-flight peer messages ({@code sent == received}). It then broadcasts a
- * {@link WorkerMessages.SyncBarrier}: advance the safe time, recheck (messages still in flight),
- * or terminate (global minimum reached the end time, or all queues empty).
- */
+// Coordinates one running job: the conservative time barrier and the per-worker result merge.
+// Each round, every worker reports when locally idle; once all K report, the coordinator takes the
+// global minimum timestamp, checks for in-flight peer messages (sent == received), and broadcasts a
+// barrier: advance the safe time, recheck, or terminate (global min reached the end, or all empty).
 public final class JobCoordinator {
 
     private final String jobId;
@@ -62,7 +56,7 @@ public final class JobCoordinator {
         return workers;
     }
 
-    /** Feeds one worker's sync report; broadcasts a barrier once all workers have reported. */
+    // Feeds one worker's report; broadcasts a barrier once all have reported.
     public synchronized void onReport(WorkerMessages.SyncReport r) {
         if (terminated || r.workerIndex < 0 || r.workerIndex >= k) {
             return;
@@ -122,7 +116,7 @@ public final class JobCoordinator {
         }
     }
 
-    /** Feeds one worker's result; returns true when all workers have finished. */
+    // Feeds one worker's result; returns true when all have finished.
     public synchronized boolean onDone(int workerIndex, String[][] workerStates) {
         if (workerIndex < 0 || workerIndex >= k) {
             return false;
@@ -135,7 +129,7 @@ public final class JobCoordinator {
         return doneCount == k;
     }
 
-    /** Merges every worker's component states into a single array (server then sorts by id). */
+    // Merges all workers' states into one array (the server sorts it).
     public synchronized String[][] mergedStates() {
         List<String[]> all = new ArrayList<>();
         for (String[][] perWorker : states) {

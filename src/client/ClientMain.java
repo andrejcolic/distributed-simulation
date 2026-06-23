@@ -7,19 +7,14 @@ import common.JobInfo;
 import common.JobSpec;
 import common.JobType;
 
-/**
- * Client entry point. With no arguments it launches the AWT GUI; with arguments it runs as a
- * console client, which keeps the seven test scenarios scriptable.
- *
- * <pre>
- * java ... ClientMain                                  # launches the GUI
- * java ... ClientMain &lt;host&gt; &lt;port&gt; submit &lt;components&gt; &lt;connections&gt; &lt;type&gt; &lt;endTime&gt; &lt;outputName&gt;
- * java ... ClientMain &lt;host&gt; &lt;port&gt; status &lt;jobId&gt;
- * java ... ClientMain &lt;host&gt; &lt;port&gt; result &lt;jobId&gt; [destFile]
- * java ... ClientMain &lt;host&gt; &lt;port&gt; abort  &lt;jobId&gt;
- * java ... ClientMain &lt;host&gt; &lt;port&gt; list
- * </pre>
- */
+// Client entry point. No arguments launches the AWT GUI; with arguments it runs as a console
+// client (so the scenarios can be scripted):
+//   ClientMain                                              -> GUI
+//   ClientMain <host> <port> submit <components> <connections> <type> <endTime> <outputName>
+//   ClientMain <host> <port> status <jobId>
+//   ClientMain <host> <port> result <jobId> [destFile]
+//   ClientMain <host> <port> abort  <jobId>
+//   ClientMain <host> <port> list
 public class ClientMain {
 
     public static void main(String[] args) {
@@ -60,7 +55,7 @@ public class ClientMain {
                     usage();
             }
         } catch (IOException e) {
-            // Covers Test 5 (foreign/web server): clean message instead of hanging.
+            // foreign/web server: clean message instead of hanging
             System.err.println("Error: " + e.getMessage());
         }
     }
