@@ -15,9 +15,8 @@ import common.DistributedSubJobSpec;
 import common.JobSpec;
 import common.PeerEndpoint;
 
-// Splits a job into one sub-job per worker: reads the components file line by line and writes each
-// line to one worker's split round-robin (≈ equal counts). Every worker gets all connections plus a
-// routing table (componentId -> worker index) and the peer endpoints.
+// Splits a job into one sub-job per worker: components go round-robin to per-worker split files;
+// every worker gets all connections plus a routing table (componentId -> worker index) and peers.
 public final class Partitioner {
 
     private Partitioner() {
@@ -65,7 +64,7 @@ public final class Partitioner {
 
         List<DistributedSubJobSpec> subs = new ArrayList<>(k);
         for (int i = 0; i < k; i++) {
-            subs.add(new DistributedSubJobSpec(job.id, i, k,
+            subs.add(new DistributedSubJobSpec(job.id, job.attempt, i, k,
                 routing, peers, spec.getType(), spec.getEndTime()));
         }
         return subs;

@@ -14,11 +14,7 @@ import common.msg.PeerMessages;
 import sleep.simulation.Event;
 import sleep.simulation.SimBuffer;
 
-// SimBuffer that routes events across workers. putEvents (called from Simulator.work via
-// Netlist.transform) sends each event to the worker owning its dstID: local events go into a
-// PriorityQueue ordered by lTime, remote events are sent to that peer; a receiver thread feeds
-// incoming events back into the same queue. Processing is gated by a conservative safe time: only
-// events with lTime <= safeTime run, and the barrier (see DistributedJob) advances safeTime.
+// SimBuffer that routes events across workers; processing is gated by a conservative safe time.
 @SuppressWarnings({"rawtypes", "unchecked"})
 public final class DistributedSimBuffer implements SimBuffer {
 
@@ -32,15 +28,23 @@ public final class DistributedSimBuffer implements SimBuffer {
 
     private volatile long safeTime = Long.MIN_VALUE;
     private volatile boolean terminated = false;
+    private volatile boolean peerFailed = false;
+
+    // Optimistic mode: peer-bound events are held until the barrier marks their time safe.
+    private boolean optimistic = false;
+    private final PriorityQueue<Event> heldRemote = new PriorityQueue<>();
 
     public DistributedSimBuffer(Map<Long, Integer> routing, int selfIndex) {
         this.routing = routing;
         this.selfIndex = selfIndex;
     }
 
-    // Registers a peer connection (during setup, before the run starts).
     public void setPeer(int index, Connection connection) {
         peers.put(index, connection);
+    }
+
+    public void setOptimistic() {
+        this.optimistic = true;
     }
 
     /* SimBuffer */
@@ -61,6 +65,8 @@ public final class DistributedSimBuffer implements SimBuffer {
                 int owner = ownerOf(e);
                 if (owner == selfIndex) {
                     queue.add(e);
+                } else if (optimistic) {
+                    heldRemote.add(e);
                 } else {
                     if (remote == null) {
                         remote = new HashMap<>();
@@ -79,7 +85,6 @@ public final class DistributedSimBuffer implements SimBuffer {
 
     @Override
     public synchronized Event getEvent() {
-        // Blocking variant (not used by the conservative loop, which uses pollProcessable).
         while (queue.isEmpty() && !terminated) {
             try {
                 wait();
@@ -108,13 +113,16 @@ public final class DistributedSimBuffer implements SimBuffer {
 
     @Override
     public synchronized long getMinrank() {
-        Event e = queue.peek();
-        return e == null ? Long.MAX_VALUE : e.getlTime();
+        long min = queue.isEmpty() ? Long.MAX_VALUE : queue.peek().getlTime();
+        if (!heldRemote.isEmpty()) {
+            min = Math.min(min, heldRemote.peek().getlTime());
+        }
+        return min;
     }
 
     /* conservative control */
 
-    // Returns the next event if it is within the safe time, else null.
+    // Next event within the safe time, else null.
     public synchronized Event pollProcessable() {
         if (terminated || queue.isEmpty()) {
             return null;
@@ -124,6 +132,36 @@ public final class DistributedSimBuffer implements SimBuffer {
             return queue.poll();
         }
         return null;
+    }
+
+    /* optimistic control */
+
+    // Next event with lTime below the limit (eager processing, ignoring the safe time), else null.
+    public synchronized Event pollBelow(long limit) {
+        if (terminated || queue.isEmpty() || queue.peek().getlTime() >= limit) {
+            return null;
+        }
+        return queue.poll();
+    }
+
+    // Sends held peer-bound events whose time is now safe.
+    public void releaseRemoteUpTo(long safe) {
+        List<Event> due = new ArrayList<>();
+        synchronized (this) {
+            while (!heldRemote.isEmpty() && heldRemote.peek().getlTime() <= safe) {
+                due.add(heldRemote.poll());
+            }
+        }
+        if (due.isEmpty()) {
+            return;
+        }
+        Map<Integer, List<Object>> byOwner = new HashMap<>();
+        for (Event e : due) {
+            byOwner.computeIfAbsent(ownerOf(e), k -> new ArrayList<>()).add(e);
+        }
+        for (Map.Entry<Integer, List<Object>> entry : byOwner.entrySet()) {
+            sendRemote(entry.getKey(), entry.getValue());
+        }
     }
 
     public void setSafeTime(long safeTime) {
@@ -149,7 +187,11 @@ public final class DistributedSimBuffer implements SimBuffer {
         return received.get();
     }
 
-    // Called by a peer receiver thread when a batch of events arrives.
+    // True if a peer became unreachable (its worker died).
+    public boolean peerFailed() {
+        return peerFailed;
+    }
+
     public void receiveEvents(List<Object> events) {
         synchronized (this) {
             for (Object o : events) {
@@ -164,14 +206,12 @@ public final class DistributedSimBuffer implements SimBuffer {
 
     private int ownerOf(Event e) {
         Integer owner = routing.get(e.getDstID());
-        // An unknown destination is treated as local so events are never silently dropped.
-        return owner == null ? selfIndex : owner;
+        return owner == null ? selfIndex : owner; // unknown destination treated as local
     }
 
     private void sendRemote(int owner, List<Object> batch) {
         Connection conn = peers.get(owner);
         if (conn == null) {
-            // No peer link (should not happen once setup completes): keep the events local.
             synchronized (this) {
                 for (Object o : batch) {
                     queue.add((Event) o);
@@ -183,8 +223,9 @@ public final class DistributedSimBuffer implements SimBuffer {
             conn.send(new PeerMessages.RouteEvents(batch));
             sent.addAndGet(batch.size());
         } catch (IOException ex) {
-            // peer unreachable: fail this sub-job (the server restarts it)
-            throw new RuntimeException("Peer " + owner + " unreachable: " + ex.getMessage(), ex);
+            // Peer unreachable (worker died): stay silent and let the server restart the job.
+            peerFailed = true;
+            setTerminated();
         }
     }
 }

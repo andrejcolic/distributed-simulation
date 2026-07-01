@@ -24,10 +24,10 @@ import common.JobSpec;
 import common.JobType;
 import common.Protocol;
 
-// AWT GUI for the client: pick the components/connections files, choose the simulation type and end
-// time, submit, and later look up status, fetch the result, or abort — keyed by job id from the
-// on-disk TicketStore. Every network call runs on a background thread, so a slow/wrong server never
-// freezes the UI.
+// AWT GUI for the client: pick the components/connections files, the simulation type and end time,
+// submit, and later look up status, fetch the result, or abort — keyed by job id from the on-disk
+// TicketStore. Every network call runs on a background thread, so a slow/wrong server never freezes
+// the UI.
 public final class ClientGUI extends Frame {
 
     private final TextField hostField = new TextField("localhost", 12);
@@ -52,6 +52,7 @@ public final class ClientGUI extends Frame {
         for (JobType t : JobType.values()) {
             typeChoice.add(t.name());
         }
+        typeChoice.select(JobType.MULTITHREAD.name()); // conservative whole-window — default
         buildUi();
         refreshTickets();
     }
@@ -223,7 +224,7 @@ public final class ClientGUI extends Frame {
             try {
                 JobInfo info = session.status(jobId);
                 log("Посао " + info.getJobId() + ": " + info.getStatus()
-                    + msg(info.getMessage()));
+                    + msg(info.getMessage()) + took(info));
             } catch (IOException ex) {
                 log("Статус није доступан: " + ex.getMessage());
             }
@@ -247,7 +248,7 @@ public final class ClientGUI extends Frame {
                 JobInfo info = session.fetchResult(jobId, new File(dest));
                 if (info.hasResult()) {
                     log("Резултат сачуван у '" + dest + "' (" + info.getResultSize()
-                        + " бајтова), статус " + info.getStatus() + ".");
+                        + " бајтова), статус " + info.getStatus() + "." + took(info));
                 } else {
                     log("Резултат још није доступан (статус " + info.getStatus() + ")"
                         + msg(info.getMessage()));
@@ -307,6 +308,12 @@ public final class ClientGUI extends Frame {
 
     private static String msg(String m) {
         return m == null || m.isEmpty() ? "" : "  (" + m + ")";
+    }
+
+    // Wall-clock duration once the job has finished.
+    private static String took(JobInfo info) {
+        return info.getFinishedAt() > 0
+            ? "  [" + (info.getFinishedAt() - info.getSubmittedAt()) + " ms]" : "";
     }
 
     private void log(String line) {

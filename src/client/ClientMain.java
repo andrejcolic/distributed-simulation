@@ -7,14 +7,8 @@ import common.JobInfo;
 import common.JobSpec;
 import common.JobType;
 
-// Client entry point. No arguments launches the AWT GUI; with arguments it runs as a console
-// client (so the scenarios can be scripted):
-//   ClientMain                                              -> GUI
-//   ClientMain <host> <port> submit <components> <connections> <type> <endTime> <outputName>
-//   ClientMain <host> <port> status <jobId>
-//   ClientMain <host> <port> result <jobId> [destFile]
-//   ClientMain <host> <port> abort  <jobId>
-//   ClientMain <host> <port> list
+// Client entry point: no arguments launches the GUI; with arguments it runs as a console client
+// (see usage() for the commands).
 public class ClientMain {
 
     public static void main(String[] args) {
@@ -115,9 +109,13 @@ public class ClientMain {
     }
 
     private static void printInfo(JobInfo info) {
-        System.out.println("Job " + info.getJobId() + ": " + info.getStatus()
+        String line = "Job " + info.getJobId() + ": " + info.getStatus()
             + (info.getMessage() == null || info.getMessage().isEmpty()
-                ? "" : "  (" + info.getMessage() + ")"));
+                ? "" : "  (" + info.getMessage() + ")");
+        if (info.getFinishedAt() > 0) {
+            line += "  [" + (info.getFinishedAt() - info.getSubmittedAt()) + " ms]";
+        }
+        System.out.println(line);
     }
 
     private static void usage() {

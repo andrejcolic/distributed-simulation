@@ -1,0 +1,3 @@
+j1	rezultat.txt
+j2	rezultat.txt
+j3	rezultat.txt

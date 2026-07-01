@@ -11,10 +11,8 @@ import java.net.Socket;
 
 import common.msg.Message;
 
-// Socket wrapper: a magic handshake, then messages over ObjectStreams. A wrong or foreign
-// protocol fails the handshake (with a connect/read timeout) so the connection is rejected, not
-// hung. Both sides write the magic then read it; the output stream is created before the input
-// stream to avoid a deadlock on the ObjectStream headers.
+// Socket wrapper: a magic handshake, then messages over ObjectStreams. A wrong/foreign protocol
+// fails the handshake (with a timeout), so the connection is rejected rather than left hanging.
 public final class Connection implements AutoCloseable {
 
     private final Socket socket;
@@ -65,7 +63,7 @@ public final class Connection implements AutoCloseable {
                 + Integer.toHexString(Protocol.MAGIC));
         }
 
-        socket.setSoTimeout(0); // handshake OK; drop the timeout for long transfers
+        socket.setSoTimeout(0);
 
         ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream());
         oos.flush();
@@ -76,7 +74,7 @@ public final class Connection implements AutoCloseable {
     public synchronized void send(Message message) throws IOException {
         out.writeObject(message);
         out.flush();
-        out.reset(); // don't let the stream's object table grow on long connections
+        out.reset();
     }
 
     // Blocks until a message arrives; throws IOException on disconnect/EOF.

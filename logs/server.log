@@ -1,0 +1,21 @@
+2026-07-01 02:44:28  Server listening on port 5039 (all interfaces).
+2026-07-01 02:44:28  Reachable addresses: 192.168.9.1, 192.168.67.1, 10.27.12.164
+2026-07-01 02:45:22  Worker LAPTOP-VJU930VN registered (capacity 2, peer 127.0.0.1:61119, id w1).
+2026-07-01 02:45:50  Job j1 received (output 'rezultat.txt').
+2026-07-01 02:45:50  Job j1 -> Ready
+2026-07-01 02:45:51  Job j1 -> Scheduled [LAPTOP-VJU930VN]
+2026-07-01 02:45:51  Job j1 -> Running [LAPTOP-VJU930VN]
+2026-07-01 02:45:51  Job j1 split across 1 worker(s).
+2026-07-01 02:46:32  Job j1 -> Done [LAPTOP-VJU930VN] (41875 ms)
+2026-07-01 02:47:08  Job j2 received (output 'rezultat.txt').
+2026-07-01 02:47:08  Job j2 -> Ready
+2026-07-01 02:47:08  Job j2 -> Scheduled [LAPTOP-VJU930VN]
+2026-07-01 02:47:08  Job j2 -> Running [LAPTOP-VJU930VN]
+2026-07-01 02:47:08  Job j2 split across 1 worker(s).
+2026-07-01 02:47:22  Job j2 -> Done [LAPTOP-VJU930VN] (13704 ms)
+2026-07-01 02:48:02  Job j3 received (output 'rezultat.txt').
+2026-07-01 02:48:02  Job j3 -> Ready
+2026-07-01 02:48:02  Job j3 -> Scheduled [LAPTOP-VJU930VN]
+2026-07-01 02:48:02  Job j3 -> Running [LAPTOP-VJU930VN]
+2026-07-01 02:48:02  Job j3 split across 1 worker(s).
+2026-07-01 02:48:15  Job j3 -> Done [LAPTOP-VJU930VN] (13580 ms)

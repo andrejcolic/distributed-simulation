@@ -133,6 +133,9 @@ public final class ServerGUI extends Frame {
             if (j.message != null && !j.message.isEmpty()) {
                 line += "  (" + j.message + ")";
             }
+            if (j.finishedAt > 0) {
+                line += "  " + (j.finishedAt - j.submittedAt) + " ms";
+            }
             jobList.add(line);
         }
         if (sel >= 0 && sel < jobList.getItemCount()) {

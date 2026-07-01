@@ -19,9 +19,8 @@ import common.msg.Message;
 import common.msg.PeerMessages;
 import common.msg.WorkerMessages;
 
-// Worker runtime: connects to the server, registers its capacity and peer port, then serves
-// assigned sub-jobs. A peer listener accepts connections from other workers so they can exchange
-// events directly. No GUI dependency, so it also runs headless.
+// Worker runtime: registers with the server, serves assigned sub-jobs, and accepts peer
+// connections from other workers for direct event exchange. Runs headless (no GUI dependency).
 public final class Worker {
 
     private final String host;
@@ -37,7 +36,7 @@ public final class Worker {
     private volatile ServerSocket peerServer;
     private volatile boolean running = true;
     private volatile boolean connected = false;
-    private volatile Consumer<String> statusListener; // optional GUI hook for status lines
+    private volatile Consumer<String> statusListener; // optional GUI hook
 
     public Worker(String host, int port, int capacity) {
         this.host = host;
@@ -70,7 +69,6 @@ public final class Worker {
         this.statusListener = listener;
     }
 
-    // Prints to the console and forwards to the GUI listener if present.
     private void status(String msg) {
         System.out.println(msg);
         Consumer<String> l = statusListener;
@@ -83,16 +81,15 @@ public final class Worker {
         }
     }
 
-    // Connects, registers, and runs the receive loop. Returns when the connection drops.
+    // Connects, registers, runs the receive loop. Returns when the connection drops.
     public void run() throws IOException {
         peerServer = new ServerSocket(0);
         int peerPort = peerServer.getLocalPort();
         startPeerListener();
 
         connection = Connection.connect(host, port);
-        connected = true;
         status("Worker '" + name + "' connected to " + host + ":" + port
-            + " (capacity " + capacity + ", peer port " + peerPort + ")");
+            + " (capacity " + capacity + ", peer port " + peerPort + "), registering…");
         try {
             connection.send(new WorkerMessages.RegisterRequest(name, capacity, peerPort));
             receiveLoop();
@@ -142,15 +139,15 @@ public final class Worker {
             } else if (msg instanceof WorkerMessages.Ping) {
                 sendQuietly(new WorkerMessages.Pong());
             } else if (msg instanceof WorkerMessages.RegisterResponse) {
+                connected = true;
                 status("Worker '" + name + "' registered: "
                     + ((WorkerMessages.RegisterResponse) msg).message);
             }
         }
     }
 
+    // Start the job off the receive loop so barriers/pings keep flowing during the input transfer.
     private void handleAssign(WorkerMessages.AssignSubJob assign) {
-        // Download the input split and start the job off the receive loop, so control messages
-        // (barriers, pings) keep flowing during the (possibly large) transfer.
         new Thread(() -> startJob(assign.subJob),
             "assign-" + assign.subJob.getJobId()).start();
     }
@@ -158,7 +155,8 @@ public final class Worker {
     private void startJob(DistributedSubJobSpec sub) {
         final String jobId = sub.getJobId();
         activeJobs.incrementAndGet();
-        File dir = new File("work", jobId + "_w" + sub.getWorkerIndex());
+        // The attempt keeps a restart's local files separate from the previous run's.
+        File dir = new File("work", jobId + "_a" + sub.getAttempt() + "_w" + sub.getWorkerIndex());
         dir.mkdirs();
         File comp = new File(dir, "components.txt");
         File conn = new File(dir, "connections.txt");
@@ -167,8 +165,7 @@ public final class Worker {
         if (outcome != FetchOutcome.OK) {
             activeJobs.decrementAndGet();
             if (outcome == FetchOutcome.ABANDONED) {
-                // The server says the inputs are gone — the job was already torn down. Reporting a
-                // failure would only trigger more cleanup, so stay silent (mirrors a cancel).
+                // Inputs are gone (job torn down): stay silent, like a cancel.
                 status("Worker '" + name + "' abandoning job " + jobId
                     + " (inputs no longer available — job torn down).");
             } else {
@@ -184,15 +181,15 @@ public final class Worker {
         DistributedJob job = new DistributedJob(sub, connection,
             () -> completeJob(jobId, holder[0]), comp, conn);
         holder[0] = job;
+        int workerIndex = sub.getWorkerIndex() + 1;
         registerJob(jobId, job);
         status("Worker '" + name + "' starting job " + jobId
-            + " as worker " + sub.getWorkerIndex() + "/" + sub.getWorkerCount());
+            + " as worker " + workerIndex + "/" + sub.getWorkerCount());
         job.start();
     }
 
-    // Fetches this worker's input split, retrying transient failures (a single reset shouldn't fail
-    // the whole sub-job). Returns ABANDONED if the server says the inputs are gone, FAILED only
-    // after every attempt failed.
+    // Fetches this worker's input split, retrying transient failures. ABANDONED if the server says
+    // the inputs are gone, FAILED only after every attempt failed.
     private FetchOutcome fetchInputs(DistributedSubJobSpec sub, File comp, File conn) {
         final int attempts = 3;
         for (int attempt = 1; attempt <= attempts; attempt++) {
@@ -231,23 +228,35 @@ public final class Worker {
 
     private void completeJob(String jobId, DistributedJob job) {
         synchronized (jobs) {
-            // Only remove if this exact instance is still current (a restart may have replaced it).
-            if (jobs.get(jobId) == job) {
+            if (jobs.get(jobId) == job) { // only if a restart hasn't replaced it
                 jobs.remove(jobId);
             }
         }
         activeJobs.decrementAndGet();
     }
 
+    // Registers the job and drains pending peer connections, keyed by attempt (reject stale ones).
     private void registerJob(String jobId, DistributedJob job) {
         List<PendingPeer> drain;
+        List<PendingPeer> keep = new ArrayList<>();
         synchronized (jobs) {
             jobs.put(jobId, job);
             drain = pending.remove(jobId);
         }
         if (drain != null) {
             for (PendingPeer p : drain) {
-                job.addInboundPeer(p.fromIndex, p.conn);
+                if (p.attempt == job.attempt()) {
+                    job.addInboundPeer(p.fromIndex, p.conn);
+                } else if (p.attempt < job.attempt()) {
+                    p.conn.close();
+                } else {
+                    keep.add(p);
+                }
+            }
+        }
+        if (!keep.isEmpty()) {
+            synchronized (jobs) {
+                pending.computeIfAbsent(jobId, k -> new ArrayList<>()).addAll(keep);
             }
         }
     }
@@ -285,19 +294,23 @@ public final class Worker {
                 return;
             }
             PeerMessages.PeerHello h = (PeerMessages.PeerHello) hello;
-            routeInbound(h.jobId, h.fromIndex, conn);
+            routeInbound(h.jobId, h.attempt, h.fromIndex, conn);
         } catch (IOException | ClassNotFoundException e) {
             // bad/garbage peer connection — ignore it
         }
     }
 
-    private void routeInbound(String jobId, int fromIndex, Connection conn) {
+    private void routeInbound(String jobId, int attempt, int fromIndex, Connection conn) {
         DistributedJob job;
         synchronized (jobs) {
             job = jobs.get(jobId);
-            if (job == null) {
+            if (job == null || attempt > job.attempt()) {
                 pending.computeIfAbsent(jobId, k -> new ArrayList<>())
-                    .add(new PendingPeer(fromIndex, conn));
+                    .add(new PendingPeer(attempt, fromIndex, conn));
+                return;
+            }
+            if (attempt < job.attempt()) {
+                conn.close(); // connection from a previous (restarted) run
                 return;
             }
         }
@@ -336,10 +349,12 @@ public final class Worker {
     }
 
     private static final class PendingPeer {
+        final int attempt;
         final int fromIndex;
         final Connection conn;
 
-        PendingPeer(int fromIndex, Connection conn) {
+        PendingPeer(int attempt, int fromIndex, Connection conn) {
+            this.attempt = attempt;
             this.fromIndex = fromIndex;
             this.conn = conn;
         }

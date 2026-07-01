@@ -8,10 +8,9 @@ import java.util.List;
 import common.Logger;
 import common.msg.WorkerMessages;
 
-// Coordinates one running job: the conservative time barrier and the per-worker result merge.
-// Each round, every worker reports when locally idle; once all K report, the coordinator takes the
-// global minimum timestamp, checks for in-flight peer messages (sent == received), and broadcasts a
-// barrier: advance the safe time, recheck, or terminate (global min reached the end, or all empty).
+// Coordinates one running job: the conservative time barrier and the per-worker result merge. When
+// all workers report, it takes the global minimum time and broadcasts a barrier (advance safe time,
+// recheck if peer messages are in flight, or terminate).
 public final class JobCoordinator {
 
     private final String jobId;

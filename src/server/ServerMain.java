@@ -25,15 +25,20 @@ public class ServerMain {
         }
 
         CentralServer server = new CentralServer(port);
+        // Bind before showing the GUI: if the port is taken (e.g. a leftover server still running),
+        // fail loudly here instead of leaving an empty, non-listening GUI window up.
+        try {
+            server.bind();
+        } catch (IOException e) {
+            System.err.println("Server could not start on port " + port + ": " + e.getMessage()
+                + " (is another server already running on this port?)");
+            return;
+        }
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop));
 
         if (!headless) {
             new ServerGUI(server, port).showUi();
         }
-        try {
-            server.start();
-        } catch (IOException e) {
-            System.err.println("Server could not start on port " + port + ": " + e.getMessage());
-        }
+        server.start();
     }
 }

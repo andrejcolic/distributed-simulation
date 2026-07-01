@@ -1,29 +1,29 @@
 package server;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import common.Connection;
 
-// Thread-safe registry of connected workers.
+// Thread-safe registry of connected workers without blocking global locks.
 public final class WorkerRegistry {
 
-    private final Map<String, WorkerHandle> workers = new LinkedHashMap<>();
+    // Upotrebom ConcurrentHashMap izbegavamo synchronized na celoj mapi
+    private final Map<String, WorkerHandle> workers = new ConcurrentHashMap<>();
     private final AtomicLong seq = new AtomicLong(0);
 
-    public synchronized WorkerHandle register(String name, Connection connection,
-                                              String peerHost, int peerPort, int capacity) {
+    public WorkerHandle register(String name, Connection connection,
+                                 String peerHost, int peerPort, int capacity) {
         String id = "w" + seq.incrementAndGet();
         WorkerHandle handle = new WorkerHandle(id, name, connection, peerHost, peerPort, capacity);
         workers.put(id, handle);
         return handle;
     }
 
-    // Workers that currently have a free slot.
-    public synchronized List<WorkerHandle> available() {
+    public List<WorkerHandle> available() {
         List<WorkerHandle> result = new ArrayList<>();
         for (WorkerHandle w : workers.values()) {
             if (w.hasFreeSlot()) {
@@ -33,14 +33,14 @@ public final class WorkerRegistry {
         return result;
     }
 
-    public synchronized void unregister(WorkerHandle handle) {
+    public void unregister(WorkerHandle handle) {
         if (handle != null) {
             workers.remove(handle.id);
         }
     }
 
-    // A worker with a free slot, or null if none.
-    public synchronized WorkerHandle findAvailable() {
+    // Radnik sa slobodnim slotom, ili null
+    public WorkerHandle findAvailable() {
         for (WorkerHandle w : workers.values()) {
             if (w.hasFreeSlot()) {
                 return w;
@@ -49,11 +49,11 @@ public final class WorkerRegistry {
         return null;
     }
 
-    public synchronized List<WorkerHandle> all() {
+    public List<WorkerHandle> all() {
         return new ArrayList<>(workers.values());
     }
 
-    public synchronized int size() {
+    public int size() {
         return workers.size();
     }
 }

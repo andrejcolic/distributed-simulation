@@ -11,10 +11,8 @@ import common.StreamUtil;
 import common.msg.ClientMessages;
 import common.msg.Message;
 
-// Client API toward the server. Each call opens a short-lived connection and closes it, so the
-// client owns no long-lived link — it can disconnect and reconnect and still ask for results by
-// job id. Files are streamed in chunks. If the host/port is a non-protocol server (e.g. a web
-// server), the handshake fails and the call throws IOException with a clear reason instead of hanging.
+// Client API toward the server. Each call opens a short-lived connection, so the client owns no
+// long-lived link and can disconnect/reconnect and still ask for results by job id.
 public final class ClientSession {
 
     private final String host;

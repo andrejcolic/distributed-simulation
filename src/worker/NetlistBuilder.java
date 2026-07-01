@@ -11,9 +11,8 @@ import java.util.List;
 
 import sleep.simulation.Netlist;
 
-// Builds a Netlist from files via the framework's reflection loader, reading line by line. A worker
-// builds only its own components but adds all connections, so Netlist.transform can also route
-// events to remote components.
+// Builds a Netlist from files via the framework's reflection loader. A worker builds only its own
+// components but adds all connections, so Netlist.transform can still route events to remote ones.
 @SuppressWarnings({"rawtypes", "unchecked"})
 public final class NetlistBuilder {
 

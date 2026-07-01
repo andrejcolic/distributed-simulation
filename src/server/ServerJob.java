@@ -16,6 +16,7 @@ public class ServerJob {
     String assignedWorker;
     long resultSize;
     boolean schedulable; // false until inputs have arrived and validated
+    int attempt;         // restart generation, incremented on each (re)assignment
 
     ServerJob(String id, JobSpec spec, long submittedAt) {
         this.id = id;

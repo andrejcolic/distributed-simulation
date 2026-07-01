@@ -21,10 +21,8 @@ import common.JobSpec;
 import common.JobStatus;
 import common.Logger;
 
-// Thread-safe job registry persisted on disk, so job state survives a server restart or a client
-// disconnect. Each job lives in jobs/<id>/: spec.ser (metadata), components.txt/connections.txt
-// (inputs), sub_w<i>.txt (per-worker splits), status.properties, result.txt. Inputs are deleted
-// when the job finishes.
+// Thread-safe job registry persisted on disk (jobs/<id>/), so job state survives a server restart
+// or a client disconnect. Inputs are deleted when the job finishes.
 public final class JobManager {
 
     private final File baseDir;
@@ -82,14 +80,19 @@ public final class JobManager {
         if (assignedWorker != null) {
             job.assignedWorker = assignedWorker;
         }
-        if (status == JobStatus.Done || status == JobStatus.Failed
-            || status == JobStatus.Aborted) {
+        boolean terminal = status == JobStatus.Done || status == JobStatus.Failed
+            || status == JobStatus.Aborted;
+        if (terminal) {
             job.finishedAt = System.currentTimeMillis();
         }
         persistStatus(job);
-        log.log("Job " + job.id + " -> " + status
+        String line = "Job " + job.id + " -> " + status
             + (job.assignedWorker != null ? " [" + job.assignedWorker + "]" : "")
-            + (message != null && !message.isEmpty() ? " (" + message + ")" : ""));
+            + (message != null && !message.isEmpty() ? " (" + message + ")" : "");
+        if (terminal) {
+            line += " (" + (job.finishedAt - job.submittedAt) + " ms)";
+        }
+        log.log(line);
     }
 
     // Writes merged states to result.txt, one per line, sorted by component id (deterministic
@@ -119,9 +122,7 @@ public final class JobManager {
             n.equals("components.txt") || n.equals("connections.txt") || n.startsWith("sub_w"));
         if (files != null) {
             for (File f : files) {
-                if (f.delete()) {
-                    // freed
-                }
+                f.delete();
             }
         }
     }

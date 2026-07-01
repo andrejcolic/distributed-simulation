@@ -7,13 +7,16 @@ public final class PeerMessages {
 
     private PeerMessages() {}
 
-    // First message on a peer connection: which job and which worker is connecting.
+    // First message on a peer connection: which job, which restart generation (attempt), and which
+    // worker is connecting. The attempt lets the receiver reject connections from a stale run.
     public static final class PeerHello implements Message {
         public final String jobId;
+        public final int attempt;
         public final int fromIndex;
 
-        public PeerHello(String jobId, int fromIndex) {
+        public PeerHello(String jobId, int attempt, int fromIndex) {
             this.jobId = jobId;
+            this.attempt = attempt;
             this.fromIndex = fromIndex;
         }
     }

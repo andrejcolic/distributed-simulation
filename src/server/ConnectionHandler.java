@@ -13,10 +13,9 @@ import common.msg.ClientMessages;
 import common.msg.Message;
 import common.msg.WorkerMessages;
 
-// Handles one accepted connection on its own thread. The first message decides the role:
-// RegisterRequest = a worker's control connection, FetchFiles = a worker downloading its input
-// split, anything else = a client request. A garbage/non-protocol connection is just logged and
-// closed, so the server keeps running.
+// Handles one accepted connection on its own thread; the first message decides the role (worker
+// control connection, worker file download, or client request). Garbage connections are logged and
+// closed without affecting the rest of the server.
 public final class ConnectionHandler implements Runnable {
 
     private final Socket socket;
@@ -33,7 +32,6 @@ public final class ConnectionHandler implements Runnable {
         try {
             conn = Connection.accept(socket);
         } catch (IOException e) {
-            // wrong/garbage protocol — reject just this connection
             server.getLog().log("Rejected connection from "
                 + socket.getRemoteSocketAddress() + ": " + e.getMessage());
             closeSocket();
@@ -50,7 +48,7 @@ public final class ConnectionHandler implements Runnable {
                 handleClient(conn, first);
             }
         } catch (java.io.EOFException e) {
-            // Peer closed the connection cleanly — normal.
+            // peer closed cleanly — normal
         } catch (IOException | ClassNotFoundException e) {
             server.getLog().log("Connection from " + socket.getRemoteSocketAddress()
                 + " ended: " + e.getMessage());
@@ -84,7 +82,7 @@ public final class ConnectionHandler implements Runnable {
                     WorkerMessages.SubJobFailed f = (WorkerMessages.SubJobFailed) msg;
                     server.onSubJobFailed(f.jobId, f.workerIndex, f.reason);
                 } else if (msg instanceof WorkerMessages.Pong) {
-                    // liveness already recorded by touch() above
+                    // liveness already recorded by touch()
                 }
             }
         } finally {
@@ -97,8 +95,7 @@ public final class ConnectionHandler implements Runnable {
     private void handleFetch(Connection conn, WorkerMessages.FetchFiles req) throws IOException {
         File sub = server.getJobs().subFile(req.jobId, req.workerIndex);
         File connections = server.getJobs().connectionsFile(req.jobId);
-        // The job may have been torn down and its inputs cleaned up while this worker was still
-        // fetching. Tell it explicitly instead of letting sendFile throw and reset the socket.
+        // Inputs may have been cleaned up (job torn down) while this worker was fetching.
         if (!sub.exists() || !connections.exists()) {
             server.getLog().log("Fetch for job " + req.jobId + " w" + req.workerIndex
                 + " declined: input files no longer available (job torn down).");
@@ -135,7 +132,6 @@ public final class ConnectionHandler implements Runnable {
     private void handleSubmit(Connection conn, ClientMessages.SubmitJobRequest req)
             throws IOException {
         ServerJob job = server.getJobs().create(req.spec);
-        // stream the inputs straight to disk
         StreamUtil.receiveFile(conn, server.getJobs().componentsFile(job.id));
         StreamUtil.receiveFile(conn, server.getJobs().connectionsFile(job.id));
         try {
@@ -170,7 +166,6 @@ public final class ConnectionHandler implements Runnable {
         }
         File result = server.getJobs().resultFile(jobId);
         boolean available = job.status == JobStatus.Done && result.exists();
-        // result size travels in JobInfo, so it isn't repeated here
         conn.send(new ClientMessages.ResultResponse(job.toInfo(), available));
         if (available) {
             StreamUtil.sendFile(conn, result);

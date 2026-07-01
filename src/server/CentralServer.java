@@ -1,16 +1,22 @@
 package server;
 
 import java.io.IOException;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import common.DistributedSubJobSpec;
 import common.JobStatus;
+import common.JobType;
 import common.Logger;
 import common.msg.WorkerMessages;
 
@@ -22,10 +28,9 @@ public final class CentralServer {
     private final Logger log;
     private final JobManager jobs;
     private final WorkerRegistry workers = new WorkerRegistry();
-    // Atomic map; "claim then act" uses remove(key, value) so each job is handled once.
+    // "claim then act" via remove(key, value), so each job is handled once.
     private final Map<String, JobCoordinator> coordinators = new ConcurrentHashMap<>();
 
-    // One lock for scheduling and worker slot counts (prevents double assignment).
     private final Object scheduleLock = new Object();
 
     private volatile boolean running = true;
@@ -50,9 +55,14 @@ public final class CentralServer {
         return log;
     }
 
-    public void start() throws IOException {
+    // Bind before start()/GUI so a port-in-use failure surfaces immediately.
+    public void bind() throws IOException {
         serverSocket = new ServerSocket(port);
-        log.log("Server listening on port " + port + ".");
+    }
+
+    public void start() {
+        log.log("Server listening on port " + port + " (all interfaces).");
+        log.log("Reachable addresses: " + localAddresses());
         heartbeat = new HeartbeatMonitor(this);
         Thread hb = new Thread(heartbeat, "heartbeat");
         hb.setDaemon(true);
@@ -90,7 +100,6 @@ public final class CentralServer {
 
     /* scheduling */
 
-    // Splits each Ready job across the free workers and assigns the sub-jobs.
     void schedule() {
         synchronized (scheduleLock) {
             while (true) {
@@ -102,14 +111,19 @@ public final class CentralServer {
                 if (available.isEmpty()) {
                     return;
                 }
-                if (!assign(job, available)) {
-                    return; // assignment aborted (e.g. a worker died); retry later
+                // SINGLETHREAD runs on a single station (no distribution); the others use all.
+                List<WorkerHandle> chosen = job.spec.getType() == JobType.SINGLETHREAD
+                    ? new ArrayList<>(available.subList(0, 1))
+                    : available;
+                if (!assign(job, chosen)) {
+                    return; // aborted (e.g. a worker died); retry later
                 }
             }
         }
     }
 
     private boolean assign(ServerJob job, List<WorkerHandle> chosen) {
+        job.attempt++; // new generation: peer connections from any previous run are now stale
         List<DistributedSubJobSpec> subs;
         try {
             subs = Partitioner.partition(job, chosen, jobs);
@@ -171,21 +185,18 @@ public final class CentralServer {
     void onSubJobFailed(String jobId, int workerIndex, String reason) {
         JobCoordinator coordinator = coordinators.remove(jobId);
         if (coordinator == null) {
-            // Already handled (e.g. a worker loss is restarting this job) — ignore stray failures.
-            return;
+            return; // already handled (e.g. a worker-loss restart); ignore stray failures
         }
         ServerJob job = jobs.get(jobId);
         if (job != null) {
             jobs.setStatus(job, JobStatus.Failed, reason, null);
             jobs.cleanupInputs(jobId);
         }
-        // Cancel the other workers' sub-jobs so they stop waiting at the barrier.
         cancelOthers(coordinator, null);
         releaseSlots(coordinator.workers());
         schedule();
     }
 
-    // User abort: cancel any running sub-jobs and release resources.
     void abortJob(ServerJob job) {
         JobCoordinator coordinator = coordinators.remove(job.id);
         if (coordinator != null) {
@@ -213,13 +224,11 @@ public final class CentralServer {
 
         List<JobCoordinator> affected = new ArrayList<>();
         for (JobCoordinator c : coordinators.values()) {
-            // claim atomically: remove(key, value) wins only once, so no double-handling
             if (c.workers().contains(worker) && coordinators.remove(c.jobId(), c)) {
                 affected.add(c);
             }
         }
         for (JobCoordinator c : affected) {
-            // Tell the surviving workers to abandon this run, then re-queue it for a fresh split.
             cancelOthers(c, worker);
             releaseSlots(c.workers());
             ServerJob job = jobs.get(c.jobId());
@@ -234,7 +243,6 @@ public final class CentralServer {
         schedule();
     }
 
-    // Sends CancelSubJob to the coordinator's workers except `skip`.
     private void cancelOthers(JobCoordinator coordinator, WorkerHandle skip) {
         for (WorkerHandle w : coordinator.workers()) {
             if (w == skip || w.dead) {
@@ -250,15 +258,14 @@ public final class CentralServer {
     }
 
     private void finishJob(JobCoordinator coordinator) {
-        // Claim the job first: if a concurrent worker-loss/abort already removed it, do nothing.
         if (!coordinators.remove(coordinator.jobId(), coordinator)) {
-            return;
+            return; // a concurrent worker-loss/abort already claimed it
         }
         ServerJob job = jobs.get(coordinator.jobId());
         if (job != null) {
             jobs.writeResult(job, coordinator.mergedStates());
             jobs.setStatus(job, JobStatus.Done, null, null);
-            jobs.cleanupInputs(job.id); // free large input files
+            jobs.cleanupInputs(job.id);
         }
         releaseSlots(coordinator.workers());
         schedule();
@@ -272,6 +279,30 @@ public final class CentralServer {
                 }
             }
         }
+    }
+
+    // Non-loopback IPv4 addresses, so it's clear what workers/clients should connect to.
+    private static String localAddresses() {
+        List<String> addrs = new ArrayList<>();
+        try {
+            Enumeration<NetworkInterface> nics = NetworkInterface.getNetworkInterfaces();
+            while (nics.hasMoreElements()) {
+                NetworkInterface nic = nics.nextElement();
+                if (!nic.isUp() || nic.isLoopback()) {
+                    continue;
+                }
+                Enumeration<InetAddress> ips = nic.getInetAddresses();
+                while (ips.hasMoreElements()) {
+                    InetAddress ip = ips.nextElement();
+                    if (ip instanceof Inet4Address) {
+                        addrs.add(ip.getHostAddress());
+                    }
+                }
+            }
+        } catch (SocketException e) {
+            return "unknown (" + e.getMessage() + ")";
+        }
+        return addrs.isEmpty() ? "localhost only" : String.join(", ", addrs);
     }
 
     private static String workerNames(List<WorkerHandle> handles) {
